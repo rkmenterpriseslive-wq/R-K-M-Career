@@ -19,13 +19,6 @@ const Header: React.FC<HeaderProps> = ({ userType, onLoginSelect, onLogout, onHi
           {!isLoggedIn ? (
             <>
               <Button
-                size="sm"
-                onClick={onHireUsClick}
-                className="bg-teal-500 text-white hover:bg-teal-600 transform hover:-translate-y-0.5 hover:shadow-md"
-              >
-                Hire us for Jobs
-              </Button>
-              <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => onLoginSelect(UserType.CANDIDATE)}
@@ -48,6 +41,13 @@ const Header: React.FC<HeaderProps> = ({ userType, onLoginSelect, onLogout, onHi
                 className="border border-white text-white hover:bg-white/10 transform hover:-translate-y-0.5"
               >
                 Team Login
+              </Button>
+              <Button
+                size="sm"
+                onClick={onHireUsClick}
+                className="bg-teal-500 text-white hover:bg-teal-600 transform hover:-translate-y-0.5 hover:shadow-md ml-2"
+              >
+                Post Job / Hire Us
               </Button>
             </>
           ) : (

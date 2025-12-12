@@ -93,7 +93,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               userType={userType} // Pass userType for section filtering
               branding={branding}
               onUpdateBranding={onUpdateBranding}
-              currentUser={currentUser}
+              currentUser={currentUser || null}
               vendors={vendors}
               jobRoles={jobRoles}
               locations={locations}
@@ -111,14 +111,14 @@ const Dashboard: React.FC<DashboardProps> = ({
             onLogout={onLogout}
             activeCandidateMenuItem={activeCandidateMenuItem}
             onCandidateMenuItemClick={onCandidateMenuItemClick}
-            currentUser={currentUser}
+            currentUser={currentUser || null}
           >
             <CandidateDashboardContent
               activeCandidateMenuItem={activeCandidateMenuItem}
               jobs={jobs}
               onApplyNow={onApplyNow}
               onProfileComplete={onProfileComplete}
-              currentUser={currentUser}
+              currentUser={currentUser || null}
             />
           </CandidateLayout>
         );
