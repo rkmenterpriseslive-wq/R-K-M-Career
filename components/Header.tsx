@@ -1,3 +1,4 @@
+
 import React from 'react';
 import Button from './Button';
 import { UserType, HeaderProps } from '../types'; // Import HeaderProps
@@ -30,7 +31,7 @@ const Header: React.FC<HeaderProps> = ({ userType, onLoginSelect, onLogout, onHi
                 onClick={() => onLoginSelect(UserType.CANDIDATE)}
                 className="border border-white text-white hover:bg-white/10 transform hover:-translate-y-0.5"
               >
-                Employee Login
+                Candidate Login
               </Button>
               <Button
                 variant="ghost"
