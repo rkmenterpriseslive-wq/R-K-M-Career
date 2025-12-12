@@ -58,6 +58,38 @@ import MyAttendanceView from '../candidate/MyAttendanceView';
 import JobBoardListView from './JobBoardListView';
 import RequirementsBreakdownView from './RequirementsBreakdownView';
 
+declare const html2pdf: any;
+
+// New HR Summary Card component
+const HRSummaryCard: React.FC<{ onNavigate: (item: AdminMenuItem) => void }> = ({ onNavigate }) => {
+    const stats = getHRDashboardStats();
+
+    const metrics = [
+        { label: "Total Employees", value: stats.totalEmployees, color: "text-blue-600", item: AdminMenuItem.EmployeeManagement },
+        { label: "Pending Onboarding", value: stats.pendingOnboarding, color: "text-yellow-600", item: AdminMenuItem.EmployeeManagement },
+        { label: "New Hires (Month)", value: stats.newHires, color: "text-green-600", item: AdminMenuItem.EmployeeManagement },
+        { label: "Pending Payroll", value: `₹${(stats.pendingPayroll / 100000).toFixed(1)}L`, color: "text-indigo-600", item: AdminMenuItem.ManagePayroll },
+    ];
+
+    return (
+        <div className="bg-white rounded-xl shadow-md p-6 h-full border border-gray-200">
+            <h3 className="text-xl font-semibold text-gray-800 mb-4">HR Summary</h3>
+            <div className="space-y-4">
+                {metrics.map((metric) => (
+                    <div
+                        key={metric.label}
+                        className="flex justify-between items-center bg-gray-50 p-3 rounded-lg hover:bg-gray-100 cursor-pointer"
+                        onClick={() => onNavigate(metric.item)}
+                    >
+                        <span className="text-gray-700 font-medium text-sm">{metric.label}</span>
+                        <span className={`font-bold text-lg ${metric.color}`}>{metric.value}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 // Internal Components merged for file size optimization
 
 const AddLineupForm: React.FC<{ onClose: () => void; onSave: () => void }> = ({ onClose, onSave }) => {
@@ -975,9 +1007,9 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({
                 />
                  <StatCard 
                     title="Requirements Update"
-                    value={partnerRequirementStats.total}
-                    isSplitMetrics={true}
+                    isSplitMetrics={false}
                     metrics={[
+                        { label: "Total", value: partnerRequirementStats.total, color: "text-blue-600" },
                         { label: "Pending", value: partnerRequirementStats.pending, color: "text-yellow-600" },
                         { label: "Approved", value: partnerRequirementStats.approved, color: "text-green-600" },
                     ]}
