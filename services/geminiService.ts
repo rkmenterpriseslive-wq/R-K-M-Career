@@ -1,4 +1,12 @@
+
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+
+// Declare process to avoid TypeScript errors during build if @types/node is missing
+declare const process: {
+  env: {
+    API_KEY: string;
+  };
+};
 
 // FIX: As per guidelines, initialize directly with process.env.API_KEY and remove redundant checks.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });

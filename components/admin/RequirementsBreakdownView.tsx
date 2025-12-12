@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { RequirementBreakdownData, DetailedRequirementBreakdownRow, BreakdownDetail } from '../../types';
 
-type BreakdownTab = 'Team Wise' | 'Partner Wise' | 'Store Wise' | 'Role Wise';
+type BreakdownTab = 'Team Wise' | 'Brand Wise' | 'Store Wise' | 'Role Wise';
 
 interface RequirementsBreakdownViewProps {
     data: RequirementBreakdownData;
@@ -11,7 +11,7 @@ interface RequirementsBreakdownViewProps {
 const RequirementsBreakdownView: React.FC<RequirementsBreakdownViewProps> = ({ data }) => {
     const [activeTab, setActiveTab] = useState<BreakdownTab>('Team Wise');
 
-    const tabs: BreakdownTab[] = ['Team Wise', 'Partner Wise', 'Store Wise', 'Role Wise'];
+    const tabs: BreakdownTab[] = ['Team Wise', 'Brand Wise', 'Store Wise', 'Role Wise'];
 
     const renderBreakdownString = (breakdown: BreakdownDetail | undefined) => {
         if (!breakdown || Object.keys(breakdown).length === 0) return '-';
@@ -33,13 +33,13 @@ const RequirementsBreakdownView: React.FC<RequirementsBreakdownViewProps> = ({ d
                     { header: 'Location', render: row => renderBreakdownString(row.locationBreakdown) },
                     { header: 'Role', render: row => renderBreakdownString(row.roleBreakdown) },
                     { header: 'Store', render: row => renderBreakdownString(row.storeBreakdown) },
-                    { header: 'Brand', render: row => renderBreakdownString(row.brandBreakdown) },
-                    { header: 'Partner', render: row => renderBreakdownString(row.partnerNameBreakdown) }
+                    { header: 'Partner', render: row => renderBreakdownString(row.partnerNameBreakdown) },
+                    { header: 'Brand', render: row => renderBreakdownString(row.brandBreakdown) }
                 ];
                 break;
-            case 'Partner Wise':
+            case 'Brand Wise':
                 primaryColumnName = "Brand";
-                tableData = data.partner;
+                tableData = data.partner; // Data is keyed by client/brand name in App.tsx
                 columns = [
                     { header: 'Partner', render: row => renderBreakdownString(row.partnerNameBreakdown) },
                     { header: 'Location', render: row => renderBreakdownString(row.locationBreakdown) },
@@ -53,8 +53,8 @@ const RequirementsBreakdownView: React.FC<RequirementsBreakdownViewProps> = ({ d
                 columns = [
                     { header: 'Location', render: row => row.location || '-' },
                     { header: 'Role', render: row => renderBreakdownString(row.roleBreakdown) },
-                    { header: 'Brand', render: row => renderBreakdownString(row.brandBreakdown) },
-                    { header: 'Partner', render: row => renderBreakdownString(row.partnerNameBreakdown) }
+                    { header: 'Partner', render: row => renderBreakdownString(row.partnerNameBreakdown) },
+                    { header: 'Brand', render: row => renderBreakdownString(row.brandBreakdown) }
                 ];
                 break;
             case 'Role Wise':
@@ -63,8 +63,8 @@ const RequirementsBreakdownView: React.FC<RequirementsBreakdownViewProps> = ({ d
                 columns = [
                     { header: 'Location', render: row => renderBreakdownString(row.locationBreakdown) },
                     { header: 'Store', render: row => renderBreakdownString(row.storeBreakdown) },
-                    { header: 'Brand', render: row => renderBreakdownString(row.brandBreakdown) },
-                    { header: 'Partner', render: row => renderBreakdownString(row.partnerNameBreakdown) }
+                    { header: 'Partner', render: row => renderBreakdownString(row.partnerNameBreakdown) },
+                    { header: 'Brand', render: row => renderBreakdownString(row.brandBreakdown) }
                 ];
                 break;
         }
