@@ -48,7 +48,7 @@ const PartnerActiveCandidatesView: React.FC = () => {
                     storeName: c.storeLocation || c.storeName || 'N/A',
                     vendor: c.vendor,
                     joiningDate: c.joiningDate || c.appliedDate || new Date().toISOString(), // Fallback
-                    status: 'Active' as const
+                    status: 'Active'
                 }));
             setCandidates(activeCandidates);
         };

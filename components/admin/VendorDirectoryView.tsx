@@ -30,7 +30,6 @@ export interface Vendor {
     email: string;
     phone: string;
     locations: string[];
-    location?: string; // Added to fix legacy support error
     jobRoles: string[];
     commissionType: 'Percentage Based' | 'Slab Based' | 'Attendance Based';
     commissionValue?: string;
@@ -64,7 +63,7 @@ const VendorDirectoryView: React.FC<VendorDirectoryViewProps> = ({
         phone: '',
         locations: [] as string[],
         jobRoles: [] as string[],
-        commissionType: 'Percentage Based' as Vendor['commissionType'],
+        commissionType: 'Percentage Based' as const,
         commissionValue: '',
         terms: '',
     });

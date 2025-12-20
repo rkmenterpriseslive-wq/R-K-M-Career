@@ -336,7 +336,7 @@ const App: React.FC = () => {
       if (user) {
         let profile = await getUserProfile(user.uid);
         if (!profile) {
-            await createUserProfile(user.uid, user.email || '', user.email === 'rkrohit19kumar@gmail.com' ? UserType.ADMIN : UserType.CANDIDATE, (user.email || '').split('@')[0] || 'New User');
+            await createUserProfile(user.uid, user.email, user.email === 'rkrohit19kumar@gmail.com' ? UserType.ADMIN : UserType.CANDIDATE, user.email?.split('@')[0] || 'New User');
             profile = await getUserProfile(user.uid);
         }
         if (profile) {
