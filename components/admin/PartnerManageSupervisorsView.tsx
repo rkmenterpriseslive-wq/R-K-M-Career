@@ -1,18 +1,20 @@
 
-import React, { useState, useMemo, FC } from 'react';
+
+import React, { useState, useMemo, FC, useEffect } from 'react';
 import { StoreSupervisor, UserType } from '../../types';
 import { createSecondaryUser } from '../../services/firebaseService';
+import { onStoreSupervisorsChange, createStoreSupervisor, updateStoreSupervisor, deleteStoreSupervisor } from '../../services/firestoreService'; // Import new Firestore services
+import { auth } from '../../services/firebaseService'; // Import auth for current user UID
 import Button from '../Button';
 import Input from '../Input';
 import Modal from '../Modal';
-
-// --- MOCK DATA ---
-const MOCK_SUPERVISORS: StoreSupervisor[] = [];
+import { usePopup } from '../../contexts/PopupContext'; // Import usePopup
+import StatCard from '../admin/StatCard'; // Import StatCard
 
 // --- SUB-COMPONENTS ---
 const SupervisorForm: FC<{
     supervisor: Partial<StoreSupervisor> | null;
-    onSave: (data: StoreSupervisor) => void;
+    onSave: (data: Omit<StoreSupervisor, 'id'>) => Promise<void>; // Modified for add/edit
     onClose: () => void;
     isSubmitting?: boolean;
     stores: { id: string; name: string; location: string }[];
@@ -25,20 +27,20 @@ const SupervisorForm: FC<{
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         // Basic validation
         if (!formData.name || !formData.email || !formData.phone || !formData.storeLocation) {
-            alert('Please fill all fields.');
+            alert('Please fill all required fields.');
             return;
         }
-        onSave(formData as StoreSupervisor);
+        await onSave(formData as Omit<StoreSupervisor, 'id'>);
     };
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
             <Input id="name" name="name" label="Full Name" value={formData.name || ''} onChange={handleChange} required />
-            <Input id="email" name="email" label="Email Address" type="email" value={formData.email || ''} onChange={handleChange} required />
+            <Input id="email" name="email" label="Email Address" type="email" value={formData.email || ''} onChange={handleChange} required disabled={!!supervisor} /> {/* Email disabled if editing */}
             <Input id="phone" name="phone" label="Phone Number" type="tel" value={formData.phone || ''} onChange={handleChange} required />
             
             <div>
@@ -74,15 +76,39 @@ interface PartnerManageSupervisorsViewProps {
 }
 
 const PartnerManageSupervisorsView: FC<PartnerManageSupervisorsViewProps> = ({ stores = [] }) => {
-    const [supervisors, setSupervisors] = useState<StoreSupervisor[]>(MOCK_SUPERVISORS);
+    const [supervisors, setSupervisors] = useState<StoreSupervisor[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingSupervisor, setEditingSupervisor] = useState<StoreSupervisor | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const { showPopup } = usePopup();
+
+    const currentPartnerId = auth.currentUser?.uid; // Get current partner's UID
+
+    useEffect(() => {
+        if (!currentPartnerId) {
+            setSupervisors([]);
+            return;
+        }
+        // Use the real-time listener for live updates, filtered by partner ID.
+        const unsubscribe = onStoreSupervisorsChange((data) => {
+            setSupervisors(data);
+        }, currentPartnerId);
+
+        // Cleanup the listener when the component unmounts or partnerId changes
+        return () => unsubscribe();
+    }, [currentPartnerId]);
+    
+    const ICONS = {
+        total: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>,
+        active: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+        inactive: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+    };
 
     const summary = useMemo(() => ({
         total: supervisors.length,
         active: supervisors.filter(s => s.status === 'Active').length,
+        inactive: supervisors.filter(s => s.status === 'Inactive').length,
     }), [supervisors]);
 
     const filteredSupervisors = useMemo(() => {
@@ -102,49 +128,74 @@ const PartnerManageSupervisorsView: FC<PartnerManageSupervisorsViewProps> = ({ s
         setIsModalOpen(true);
     };
 
-    const createSupervisorAccount = async (email: string, name: string, phone: string, storeLocation: string) => {
-        try {
-            await createSecondaryUser(email, "password", {
-                email,
-                userType: UserType.STORE_SUPERVISOR,
-                fullName: name,
-                phone: phone,
-                storeLocation: storeLocation, // Add store location to profile
-            });
-            console.log("Supervisor account created successfully.");
-            return true;
-        } catch (error: any) {
-            alert(`Failed to create supervisor login: ${error.message}`);
-            return false;
+    const handleSave = async (data: Omit<StoreSupervisor, 'id'>) => {
+        if (!currentPartnerId) {
+            showPopup({ type: 'error', title: 'Error', message: 'Partner ID not found. Please log in again.' });
+            return;
         }
-    };
 
-    const handleSave = async (data: StoreSupervisor) => {
         setIsSubmitting(true);
         try {
-            if (editingSupervisor) { // Update
-                setSupervisors(supervisors.map(s => s.id === editingSupervisor.id ? { ...s, ...data } : s));
-                setIsModalOpen(false);
-                setEditingSupervisor(null);
-            } else { // Add new
-                const success = await createSupervisorAccount(data.email, data.name, data.phone, data.storeLocation);
-                if (success) {
-                    const newSupervisor = { ...data, id: `SUP${Date.now()}` };
-                    setSupervisors([newSupervisor, ...supervisors]);
-                    setIsModalOpen(false);
-                    setEditingSupervisor(null);
-                    alert(`Supervisor "${data.name}" added successfully. Login password is "password".`);
+            if (editingSupervisor) { // Update existing supervisor
+                await updateStoreSupervisor(editingSupervisor.id, data);
+                showPopup({ type: 'success', title: 'Success', message: `Supervisor "${data.name}" updated.` });
+            } else { // Add new supervisor
+                // 1. Create Firebase Auth user and initial profile in 'users' collection
+                const authSuccess = await createSecondaryUser(data.email, "password", {
+                    email: data.email,
+                    userType: UserType.STORE_SUPERVISOR,
+                    fullName: data.name,
+                    phone: data.phone,
+                    storeLocation: data.storeLocation,
+                    partnerId: currentPartnerId, // Link to the current partner
+                });
+
+                if (!authSuccess) {
+                    throw new Error("Failed to create supervisor login account.");
                 }
+
+                // 2. Create supervisor document in 'store_supervisors' collection
+                const newSupervisorData: Omit<StoreSupervisor, 'id'> = { 
+                    ...data, 
+                    partnerId: currentPartnerId, // Associate with the current partner
+                };
+                await createStoreSupervisor(newSupervisorData);
+                showPopup({ type: 'success', title: 'Success', message: `Supervisor "${data.name}" added. Login password is "password".` });
             }
-        } catch (error) {
+            setIsModalOpen(false);
+            setEditingSupervisor(null);
+            // No need to manually refresh; real-time listener will update the list.
+        } catch (error: any) {
             console.error("Error saving supervisor:", error);
+            showPopup({ type: 'error', title: 'Error', message: error.message || 'Failed to save supervisor. Please try again.' });
         } finally {
             setIsSubmitting(false);
         }
     };
     
-    const handleToggleStatus = (id: string) => {
-        setSupervisors(supervisors.map(s => s.id === id ? { ...s, status: s.status === 'Active' ? 'Inactive' : 'Active'} : s));
+    const handleToggleStatus = async (supervisor: StoreSupervisor) => {
+        const newStatus = supervisor.status === 'Active' ? 'Inactive' : 'Active';
+        try {
+            await updateStoreSupervisor(supervisor.id, { status: newStatus });
+            // Real-time listener will handle UI update
+            showPopup({ type: 'success', title: 'Status Updated', message: `Supervisor "${supervisor.name}" is now ${newStatus}.` });
+        } catch (error) {
+            console.error("Error toggling supervisor status:", error);
+            showPopup({ type: 'error', title: 'Error', message: 'Failed to update supervisor status.' });
+        }
+    };
+
+    const handleDeleteSupervisor = async (id: string, name: string) => {
+        if (window.confirm(`Are you sure you want to delete supervisor "${name}"? This action cannot be undone.`)) {
+            try {
+                await deleteStoreSupervisor(id);
+                // Real-time listener will handle UI update
+                showPopup({ type: 'success', title: 'Deleted', message: `Supervisor "${name}" has been deleted.` });
+            } catch (error) {
+                console.error("Error deleting supervisor:", error);
+                showPopup({ type: 'error', title: 'Error', message: 'Failed to delete supervisor.' });
+            }
+        }
     };
 
     return (
@@ -155,8 +206,9 @@ const PartnerManageSupervisorsView: FC<PartnerManageSupervisorsViewProps> = ({ s
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm"><h4 className="text-sm font-semibold text-gray-500">Total Supervisors</h4><p className="text-3xl font-bold text-gray-900">{summary.total}</p></div>
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm"><h4 className="text-sm font-semibold text-gray-500">Active</h4><p className="text-3xl font-bold text-green-600">{summary.active}</p></div>
+                <StatCard title="Total Supervisors" value={summary.total.toString()} icon={ICONS.total} />
+                <StatCard title="Active Supervisors" value={summary.active.toString()} valueColor="text-green-600" icon={ICONS.active} />
+                <StatCard title="Inactive Supervisors" value={summary.inactive.toString()} valueColor="text-red-600" icon={ICONS.inactive} />
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
@@ -175,7 +227,7 @@ const PartnerManageSupervisorsView: FC<PartnerManageSupervisorsViewProps> = ({ s
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {filteredSupervisors.map(sup => (
+                            {filteredSupervisors.length > 0 ? filteredSupervisors.map(sup => (
                                 <tr key={sup.id}>
                                     <td className="px-6 py-4">
                                         <div className="text-sm font-medium text-gray-900">{sup.name}</div>
@@ -188,13 +240,20 @@ const PartnerManageSupervisorsView: FC<PartnerManageSupervisorsViewProps> = ({ s
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 text-right text-sm font-medium space-x-2">
-                                        <Button variant="ghost" size="sm" onClick={() => handleToggleStatus(sup.id)}>
+                                        <Button variant="ghost" size="sm" onClick={() => handleToggleStatus(sup)}>
                                             {sup.status === 'Active' ? 'Deactivate' : 'Activate'}
                                         </Button>
                                         <Button variant="ghost" size="sm" onClick={() => openEditModal(sup)}>Edit</Button>
+                                        <Button variant="danger" size="sm" onClick={() => handleDeleteSupervisor(sup.id, sup.name)}>Delete</Button>
                                     </td>
                                 </tr>
-                            ))}
+                            )) : (
+                                <tr>
+                                    <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                                        No supervisors added yet.
+                                    </td>
+                                </tr>
+                            )}
                         </tbody>
                     </table>
                 </div>

@@ -1,76 +1,71 @@
 
-import { ref, get, set, push, remove, update, onValue } from 'firebase/database';
-import { db } from './firebaseService';
-import { Job, UserType, TeamMemberPerformance } from '../types';
 
-const jobsRef = ref(db, 'jobs');
+// services/firestoreService.ts
+import { collection, doc, getDoc, getDocs, addDoc, deleteDoc, updateDoc, query, onSnapshot, orderBy, setDoc } from 'firebase/firestore';
+import { firestoreDb } from './firebaseService'; // Import the Firestore instance
+import { Job, UserType } from '../types';
 
-// --- Jobs (Remains as-is, not requested for real-time) ---
+const jobsCollection = collection(firestoreDb, 'jobs');
+const usersCollection = collection(firestoreDb, 'users');
+const candidatesCollection = collection(firestoreDb, 'candidates');
+const complaintsCollection = collection(firestoreDb, 'complaints');
+const partnerRequirementsCollection = collection(firestoreDb, 'partner_requirements');
+const attendanceCollection = collection(firestoreDb, 'attendance');
+const settingsDocRef = doc(firestoreDb, 'settings', 'appSettings'); // Assuming a single settings document
+
+// --- Jobs ---
 export const getJobs = async (): Promise<Job[]> => {
   try {
-    const snapshot = await get(jobsRef);
-    if (snapshot.exists()) {
-      const jobsData = snapshot.val();
-      const jobsList: Job[] = Object.keys(jobsData).map(key => ({
-        id: key,
-        ...jobsData[key]
-      }));
-      jobsList.sort((a, b) => new Date(b.postedDate).getTime() - new Date(a.postedDate).getTime());
+    const q = query(jobsCollection, orderBy('postedDate', 'desc'));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const jobsList: Job[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Job[];
       return jobsList;
     }
     return [];
   } catch (error) {
-    console.error("Error fetching jobs from Firebase:", error);
+    console.error("Error fetching jobs from Firestore:", error);
     return [];
   }
 };
 
 export const createJob = async (job: Omit<Job, 'id' | 'postedDate'>): Promise<Job | null> => {
   try {
-    const newJobRef = push(jobsRef);
-    
-    // Create a copy and remove undefined fields because Firebase set() does not support them
-    const cleanedJob = JSON.parse(JSON.stringify(job));
-
     const newJobData = {
-      ...cleanedJob,
+      ...job,
       postedDate: new Date().toISOString(),
     };
-    await set(newJobRef, newJobData);
+    const docRef = await addDoc(jobsCollection, newJobData); // Use addDoc for auto-generated ID
     
-    const newJobId = newJobRef.key;
-    if (!newJobId) {
-        console.error("Failed to get new job ID from Firebase.");
-        return null;
-    }
-
     const createdJob: Job = {
-      id: newJobId,
+      id: docRef.id,
       ...newJobData,
     };
     return createdJob;
 
   } catch (error) {
-    console.error("Error creating job in Firebase:", error);
+    console.error("Error creating job in Firestore:", error);
     return null;
   }
 };
 
 export const deleteJob = async (id: string): Promise<void> => {
     try {
-        const jobToDeleteRef = ref(db, `jobs/${id}`);
-        await remove(jobToDeleteRef);
+        await deleteDoc(doc(jobsCollection, id));
     } catch (error) {
-        console.error(`Error deleting job ${id} from Firebase:`, error);
+        console.error(`Error deleting job ${id} from Firestore:`, error);
         throw error;
     }
 };
 
-// --- Users (Profile fetching remains on-demand) ---
-export const createUserProfile = async (uid: string, email: string, userType: UserType, fullName?: string, phone?: string): Promise<void> => {
-    const userRef = ref(db, `users/${uid}`);
+// --- Users (Profile fetching remains on-demand for single user, but also used by real-time listener) ---
+export const createUserProfile = async (uid: string, email: string | null, userType: UserType, fullName?: string, phone?: string): Promise<void> => {
+    const userDocRef = doc(usersCollection, uid);
     const isCandidate = userType === UserType.CANDIDATE;
-    await set(userRef, {
+    await setDoc(userDocRef, {
         email,
         userType,
         fullName: fullName || null,
@@ -80,85 +75,67 @@ export const createUserProfile = async (uid: string, email: string, userType: Us
 };
 
 export const getUserProfile = async (uid: string): Promise<{ userType: UserType, fullName?: string, phone?: string, profile_complete?: boolean, [key: string]: any } | null> => {
-    const userRef = ref(db, `users/${uid}`);
-    const snapshot = await get(userRef);
+    const userDocRef = doc(usersCollection, uid);
+    const snapshot = await getDoc(userDocRef);
     if (snapshot.exists()) {
-        return snapshot.val();
+        return snapshot.data() as { userType: UserType, fullName?: string, phone?: string, profile_complete?: boolean, [key: string]: any };
     }
     return null;
 };
 
 export const updateUserProfile = async (uid: string, data: any): Promise<void> => {
-    const userRef = ref(db, `users/${uid}`);
-    await update(userRef, data);
+    const userDocRef = doc(usersCollection, uid);
+    await updateDoc(userDocRef, data);
 };
 
 // --- REAL-TIME LISTENERS ---
 
 // New real-time listener for team members
 export const onTeamMembersChange = (callback: (teamMembers: any[]) => void) => {
-    const usersRef = ref(db, 'users');
-    const unsubscribe = onValue(usersRef, (snapshot) => {
-        if (snapshot.exists()) {
-            const usersData = snapshot.val();
-            const teamTypes = [UserType.ADMIN, UserType.HR, UserType.TEAM, UserType.TEAMLEAD];
-            const teamMembers = Object.keys(usersData)
-                .map(key => ({ id: key, ...usersData[key] }))
-                .filter(user => teamTypes.includes(user.userType));
-            callback(teamMembers);
-        } else {
-            callback([]);
-        }
+    const q = query(usersCollection, orderBy('fullName')); // Order for consistent display
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const teamTypes = [UserType.ADMIN, UserType.HR, UserType.TEAM, UserType.TEAMLEAD];
+        const teamMembers = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }) as any)
+            .filter(user => teamTypes.includes(user.userType));
+        callback(teamMembers);
     });
     return unsubscribe;
 };
 
 // New real-time listener for candidates
 export const onCandidatesChange = (callback: (candidates: any[]) => void) => {
-    const candidatesRef = ref(db, 'candidates');
-    const unsubscribe = onValue(candidatesRef, (snapshot) => {
-        if (snapshot.exists()) {
-            const data = snapshot.val();
-            callback(Object.keys(data).map(key => ({ id: key, ...data[key] })));
-        } else {
-            callback([]);
-        }
+    const q = query(candidatesCollection, orderBy('appliedDate', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        callback(data);
     });
     return unsubscribe;
 };
 
 // New real-time listener for complaints
 export const onComplaintsChange = (callback: (complaints: any[]) => void) => {
-    const complaintsRef = ref(db, 'complaints');
-    const unsubscribe = onValue(complaintsRef, (snapshot) => {
-        if (snapshot.exists()) {
-            const data = snapshot.val();
-            callback(Object.keys(data).map(key => ({ id: key, ...data[key] })));
-        } else {
-            callback([]);
-        }
+    const q = query(complaintsCollection, orderBy('submittedDate', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        callback(data);
     });
     return unsubscribe;
 };
 
 // New real-time listener for requirements
 export const onRequirementsChange = (callback: (requirements: any[]) => void) => {
-    const requirementsRef = ref(db, 'partner_requirements');
-    const unsubscribe = onValue(requirementsRef, (snapshot) => {
-        if (snapshot.exists()) {
-            const data = snapshot.val();
-            callback(Object.keys(data).map(key => ({ id: key, ...data[key] })));
-        } else {
-            callback([]);
-        }
+    const q = query(partnerRequirementsCollection, orderBy('postedDate', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        callback(data);
     });
     return unsubscribe;
 };
 
 // --- SYNCHRONOUS DATA PROCESSORS ---
 
-// This function processes a raw list of team members into the hierarchical performance structure.
-export const processTeamPerformanceStats = (allMembers: any[]): TeamMemberPerformance[] => {
+export const processTeamPerformanceStats = (allMembers: any[]): any[] => {
     try {
         const relevantMembers = allMembers.filter(member => 
             member.userType !== UserType.ADMIN && member.userType !== UserType.HR
@@ -209,19 +186,15 @@ export const processTeamPerformanceStats = (allMembers: any[]): TeamMemberPerfor
     }
 };
 
-// --- LEGACY/ON-DEMAND FUNCTIONS (Can be deprecated or used for specific cases) ---
-// Note: These are now superseded by the real-time listeners for the main dashboard.
-// They are kept for other potential uses.
+// --- LEGACY/ON-DEMAND FUNCTIONS (Now use Firestore) ---
 
 export const getAllTeamMembers = async (): Promise<any[]> => {
     try {
-        const usersRef = ref(db, 'users');
-        const snapshot = await get(usersRef);
-        if (snapshot.exists()) {
-            const usersData = snapshot.val();
+        const snapshot = await getDocs(usersCollection);
+        if (!snapshot.empty) {
             const teamTypes = [UserType.ADMIN, UserType.HR, UserType.TEAM, UserType.TEAMLEAD];
-            const teamMembers = Object.keys(usersData)
-                .map(key => ({ id: key, ...usersData[key] }))
+            const teamMembers = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }) as any)
                 .filter(user => teamTypes.includes(user.userType));
             return teamMembers;
         }
@@ -234,10 +207,10 @@ export const getAllTeamMembers = async (): Promise<any[]> => {
 
 export const getCandidates = async (): Promise<any[]> => {
     try {
-        const snapshot = await get(ref(db, 'candidates'));
-        if (snapshot.exists()) {
-            const data = snapshot.val();
-            return Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        const snapshot = await getDocs(candidatesCollection);
+        if (!snapshot.empty) {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            return data;
         }
         return [];
     } catch (error) {
@@ -248,10 +221,8 @@ export const getCandidates = async (): Promise<any[]> => {
 
 export const createCandidate = async (candidateData: any): Promise<any> => {
     try {
-        const newRef = push(ref(db, 'candidates'));
-        const payload = { ...candidateData, id: newRef.key, createdAt: new Date().toISOString() };
-        await set(newRef, payload);
-        return payload;
+        const docRef = await addDoc(candidatesCollection, { ...candidateData, createdAt: new Date().toISOString() });
+        return { id: docRef.id, ...candidateData, createdAt: new Date().toISOString() };
     } catch (error) {
         console.error("Error creating candidate:", error);
         throw error;
@@ -260,19 +231,28 @@ export const createCandidate = async (candidateData: any): Promise<any> => {
 
 export const updateCandidate = async (id: string, updates: any): Promise<void> => {
     try {
-        await update(ref(db, `candidates/${id}`), updates);
+        await updateDoc(doc(candidatesCollection, id), updates);
     } catch (error) {
         console.error(`Error updating candidate ${id}:`, error);
         throw error;
     }
 };
 
+export const deleteCandidate = async (id: string): Promise<void> => {
+    try {
+        await deleteDoc(doc(candidatesCollection, id));
+    } catch (error) {
+        console.error(`Error deleting candidate ${id} from Firestore:`, error);
+        throw error;
+    }
+};
+
 export const getComplaints = async (): Promise<any[]> => {
   try {
-    const snapshot = await get(ref(db, 'complaints'));
-    if (snapshot.exists()) {
-      const data = snapshot.val();
-      return Object.keys(data).map(key => ({ id: key, ...data[key] }));
+    const snapshot = await getDocs(complaintsCollection);
+    if (!snapshot.empty) {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      return data;
     }
     return [];
   } catch (error) {
@@ -283,10 +263,10 @@ export const getComplaints = async (): Promise<any[]> => {
 
 export const getPartnerRequirements = async (): Promise<any[]> => {
   try {
-    const snapshot = await get(ref(db, 'partner_requirements'));
-    if (snapshot.exists()) {
-      const data = snapshot.val();
-      return Object.keys(data).map(key => ({ id: key, ...data[key] }));
+    const snapshot = await getDocs(partnerRequirementsCollection);
+    if (!snapshot.empty) {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      return data;
     }
     return [];
   } catch (error) {
@@ -297,10 +277,8 @@ export const getPartnerRequirements = async (): Promise<any[]> => {
 
 export const createPartnerRequirement = async (req: any): Promise<any> => {
     try {
-        const newRef = push(ref(db, 'partner_requirements'));
-        const payload = { ...req, id: newRef.key, postedDate: new Date().toISOString() };
-        await set(newRef, payload);
-        return payload;
+        const docRef = await addDoc(partnerRequirementsCollection, { ...req, postedDate: new Date().toISOString() });
+        return { id: docRef.id, ...req, postedDate: new Date().toISOString() };
     } catch (error) {
         console.error("Error creating partner requirement:", error);
         throw error;
@@ -309,7 +287,7 @@ export const createPartnerRequirement = async (req: any): Promise<any> => {
 
 export const updatePartnerRequirement = async (id: string, updates: any): Promise<void> => {
     try {
-        await update(ref(db, `partner_requirements/${id}`), updates);
+        await updateDoc(doc(partnerRequirementsCollection, id), updates);
     } catch (error) {
         console.error("Error updating partner requirement:", error);
         throw error;
@@ -318,10 +296,10 @@ export const updatePartnerRequirement = async (id: string, updates: any): Promis
 
 export const getAttendanceData = async (): Promise<any[]> => {
     try {
-        const snapshot = await get(ref(db, 'attendance'));
-        if (snapshot.exists()) {
-            const data = snapshot.val();
-            return Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        const snapshot = await getDocs(attendanceCollection);
+        if (!snapshot.empty) {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            return data;
         }
         return [];
     } catch (error) {
@@ -332,10 +310,9 @@ export const getAttendanceData = async (): Promise<any[]> => {
 
 export const getSettings = async (): Promise<any | null> => {
     try {
-        const settingsRef = ref(db, 'settings');
-        const snapshot = await get(settingsRef);
+        const snapshot = await getDoc(settingsDocRef);
         if (snapshot.exists()) {
-            return snapshot.val();
+            return snapshot.data();
         }
         return null;
     } catch (error) {
@@ -346,8 +323,8 @@ export const getSettings = async (): Promise<any | null> => {
 
 export const updateSettings = async (settingsUpdate: any): Promise<void> => {
     try {
-        const settingsRef = ref(db, 'settings');
-        await update(settingsRef, settingsUpdate);
+        // Use setDoc with merge:true to update or create the document
+        await setDoc(settingsDocRef, settingsUpdate, { merge: true });
     } catch (error) {
         console.error("Error updating settings:", error);
         throw error;

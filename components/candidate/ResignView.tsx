@@ -1,63 +1,51 @@
 import React, { useState, useEffect } from 'react';
-import { Resignation } from '../../types';
+import { AppUser, Resignation } from '../../types';
 import Button from '../Button';
+import { submitResignation } from '../../services/firestoreService';
+import { usePopup } from '../../contexts/PopupContext';
 
-const ResignView: React.FC = () => {
-    // We'll use localStorage to persist the resignation status for demo purposes
-    const [resignation, setResignation] = useState<Resignation | null>(() => {
-        const saved = localStorage.getItem('resignation_status');
-        return saved ? JSON.parse(saved) : null;
-    });
+interface ResignViewProps {
+    currentUser: AppUser | null;
+    resignation: Resignation | null;
+}
+
+const ResignView: React.FC<ResignViewProps> = ({ currentUser, resignation }) => {
     const [reason, setReason] = useState('');
     const [isConfirmed, setIsConfirmed] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const { showPopup } = usePopup();
 
-    useEffect(() => {
-        if (resignation) {
-            localStorage.setItem('resignation_status', JSON.stringify(resignation));
+    const handleSubmit = async () => {
+        if (!currentUser) {
+            showPopup({ type: 'error', title: 'Error', message: 'You must be logged in to submit a resignation.' });
+            return;
         }
-    }, [resignation]);
-
-    const handleSubmit = () => {
         if (!reason.trim()) {
-            alert('Please provide a reason for your resignation.');
+            showPopup({ type: 'error', title: 'Error', message: 'Please provide a reason for your resignation.' });
             return;
         }
         if (!isConfirmed) {
-            alert('Please confirm your intention to resign by checking the box.');
+            showPopup({ type: 'error', title: 'Error', message: 'Please confirm your intention to resign by checking the box.' });
             return;
         }
         setIsLoading(true);
-        // Simulate API call
-        setTimeout(() => {
-            const submittedDate = new Date();
-            const newResignation: Resignation = {
-                id: 'RES' + Date.now(),
-                employeeId: 'EMP12345', // mock
-                reason: reason.trim(),
-                submittedDate: submittedDate.toISOString(),
-                status: 'Pending HR Approval',
-            };
-            setResignation(newResignation);
+
+        const resignationData = {
+            employeeId: currentUser.uid,
+            employeeName: currentUser.fullName || currentUser.email || 'N/A',
+            reason: reason.trim(),
+        };
+        
+        try {
+            await submitResignation(resignationData);
+            // The view will update automatically due to the real-time listener in App.tsx
+            showPopup({ type: 'success', title: 'Submitted', message: 'Your resignation has been submitted successfully.' });
+        } catch (error) {
+            console.error("Failed to submit resignation:", error);
+            showPopup({ type: 'error', title: 'Submission Failed', message: 'There was an error submitting your request. Please try again.' });
+        } finally {
             setIsLoading(false);
-
-            // Simulate HR approval after a delay
-            setTimeout(() => {
-                const noticePeriodStartDate = new Date(submittedDate);
-                noticePeriodStartDate.setDate(submittedDate.getDate() + 1); // Starts next day
-                const lastWorkingDay = new Date(noticePeriodStartDate);
-                lastWorkingDay.setDate(noticePeriodStartDate.getDate() + 29); // 30-day notice period (inclusive)
-
-                setResignation(prev => prev ? {
-                    ...prev,
-                    status: 'Approved',
-                    noticePeriodStartDate: noticePeriodStartDate.toISOString(),
-                    lastWorkingDay: lastWorkingDay.toISOString(),
-                    hrRemarks: 'Your resignation has been accepted. Your notice period is 30 days. Please ensure a smooth handover of your responsibilities.'
-                } : null);
-            }, 5000); // 5 seconds delay for HR approval simulation
-
-        }, 1500);
+        }
     };
 
     const formatDate = (isoString: string | undefined) => {

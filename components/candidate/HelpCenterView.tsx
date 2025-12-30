@@ -1,16 +1,17 @@
+
 import React, { useState, useMemo } from 'react';
-import { Ticket, UserType } from '../../types';
+import { AppUser, Ticket, UserType } from '../../types';
 import Button from '../Button';
 import Modal from '../Modal';
 import Input from '../Input';
+import { createComplaint } from '../../services/firestoreService';
 
-// Mock data, in a real app this would come from an API
-const MOCK_TICKETS: Ticket[] = [
-    // Empty for now, user can create them.
-];
+interface HelpCenterViewProps {
+    currentUser: AppUser | null;
+    complaints: Ticket[];
+}
 
-const HelpCenterView: React.FC = () => {
-    const [tickets, setTickets] = useState<Ticket[]>(MOCK_TICKETS);
+const HelpCenterView: React.FC<HelpCenterViewProps> = ({ currentUser, complaints }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
 
@@ -19,6 +20,11 @@ const HelpCenterView: React.FC = () => {
         subject: '',
         description: '',
     });
+
+    const userTickets = useMemo(() => {
+        if (!currentUser) return [];
+        return complaints.filter(ticket => ticket.userId === currentUser.uid);
+    }, [complaints, currentUser]);
 
     const handleOpenNewTicketModal = () => {
         setNewTicketData({
@@ -43,20 +49,30 @@ const HelpCenterView: React.FC = () => {
         setNewTicketData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmitTicket = (e: React.FormEvent) => {
+    const handleSubmitTicket = async (e: React.FormEvent) => {
         e.preventDefault();
-        // FIX: Add missing 'submittedBy' and 'userType' properties to satisfy the 'Ticket' interface.
-        const newTicket: Ticket = {
-            id: `TKT-${Date.now()}`,
-            submittedBy: "Current User", // Mocked user name as it's not available in props.
-            userType: UserType.CANDIDATE,
-            submittedDate: new Date().toISOString(),
-            status: 'Open',
-            ...newTicketData,
+        if (!currentUser) {
+            alert('You must be logged in to submit a ticket.');
+            return;
+        }
+
+        const ticketPayload = {
+            userId: currentUser.uid,
+            submittedBy: currentUser.fullName || currentUser.email || 'Unknown User',
+            userType: currentUser.userType,
+            subject: newTicketData.subject,
+            category: newTicketData.category,
+            description: newTicketData.description,
         };
-        setTickets(prev => [newTicket, ...prev]);
-        handleCloseModal();
-        alert('Your ticket has been submitted successfully.');
+
+        try {
+            await createComplaint(ticketPayload);
+            handleCloseModal();
+            alert('Your ticket has been submitted successfully.');
+        } catch (error) {
+            console.error("Failed to submit ticket:", error);
+            alert('There was an error submitting your ticket. Please try again.');
+        }
     };
 
     const getStatusClasses = (status: Ticket['status']) => {
@@ -69,10 +85,10 @@ const HelpCenterView: React.FC = () => {
     };
     
     const summaryStats = useMemo(() => {
-        const open = tickets.filter(t => t.status === 'Open' || t.status === 'In Progress').length;
-        const resolved = tickets.filter(t => t.status === 'Resolved').length;
-        return { open, resolved, total: tickets.length };
-    }, [tickets]);
+        const open = userTickets.filter(t => t.status === 'Open' || t.status === 'In Progress').length;
+        const resolved = userTickets.filter(t => t.status === 'Resolved').length;
+        return { open, resolved, total: userTickets.length };
+    }, [userTickets]);
 
     return (
         <div className="space-y-6">
@@ -103,9 +119,9 @@ const HelpCenterView: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {tickets.length > 0 ? tickets.map(ticket => (
+                            {userTickets.length > 0 ? userTickets.map(ticket => (
                                 <tr key={ticket.id}>
-                                    <td className="px-6 py-4 text-sm font-medium text-blue-600">{ticket.id}</td>
+                                    <td className="px-6 py-4 text-sm font-medium text-blue-600">{ticket.id.substring(0, 8)}...</td>
                                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{ticket.subject}</td>
                                     <td className="px-6 py-4 text-sm text-gray-600">{ticket.category}</td>
                                     <td className="px-6 py-4 text-sm text-gray-600">{new Date(ticket.submittedDate).toLocaleDateString()}</td>
@@ -151,7 +167,7 @@ const HelpCenterView: React.FC = () => {
             </Modal>
 
             {selectedTicket && (
-                <Modal isOpen={!!selectedTicket} onClose={handleCloseModal} title={`Details for Ticket ${selectedTicket.id}`}>
+                <Modal isOpen={!!selectedTicket} onClose={handleCloseModal} title={`Details for Ticket ${selectedTicket.id.substring(0, 8)}...`}>
                     <div className="space-y-4 text-sm">
                         <div className="grid grid-cols-3 gap-2"><strong className="text-gray-600">Subject:</strong><span className="col-span-2">{selectedTicket.subject}</span></div>
                         <div className="grid grid-cols-3 gap-2"><strong className="text-gray-600">Category:</strong><span className="col-span-2">{selectedTicket.category}</span></div>

@@ -1,10 +1,14 @@
 
+
+
+
+
+
 import React, { useState, useMemo, useEffect } from 'react';
 import Input from '../Input';
 import Button from '../Button';
-import { getCandidates } from '../../services/supabaseService';
+import { AppUser, Vendor } from '../../types';
 
-// --- NEW DATA STRUCTURE AND MOCK DATA ---
 interface ActiveCandidate {
     id: string;
     name: string;
@@ -13,7 +17,7 @@ interface ActiveCandidate {
     storeName: string;
     vendor: string;
     joiningDate: string;
-    status: 'Active';
+    status: string;
 }
 
 const StatCard: React.FC<{ title: string; value: number | string; color?: string; icon: React.ReactNode }> = ({ title, value, color = 'text-gray-900', icon }) => (
@@ -28,32 +32,65 @@ const StatCard: React.FC<{ title: string; value: number | string; color?: string
     </div>
 );
 
-const PartnerActiveCandidatesView: React.FC = () => {
-    // Assuming the current logged in partner is 'Vendor A' - In a real app, get this from auth context
-    const PARTNER_VENDOR = 'Vendor A'; 
-    const [candidates, setCandidates] = useState<ActiveCandidate[]>([]);
+interface PartnerActiveCandidatesViewProps {
+    currentUser: AppUser | null;
+    vendors: Vendor[];
+    candidates: any[]; // New prop for real-time candidates
+}
+
+const getStatusClasses = (status: string) => {
+    if (status === 'Selected' || status === 'Joined') return 'bg-green-100 text-green-800';
+    if (status === 'Active') return 'bg-blue-100 text-blue-800';
+    return 'bg-gray-100 text-gray-800';
+};
+
+
+const PartnerActiveCandidatesView: React.FC<PartnerActiveCandidatesViewProps> = ({ currentUser, vendors, candidates: allCandidates }) => {
     const [filters, setFilters] = useState({ search: '', client: '', storeName: '' });
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const allCandidates = await getCandidates();
-            // Filter for only active candidates belonging to this partner
-            const activeCandidates = allCandidates
-                .filter((c: any) => c.vendor === PARTNER_VENDOR && c.status === 'Active')
-                .map((c: any) => ({
-                    id: c.id,
-                    name: c.name,
-                    client: c.client || 'N/A', // Assuming 'client' field exists or derived
-                    role: c.role,
-                    storeName: c.storeLocation || c.storeName || 'N/A',
-                    vendor: c.vendor,
-                    joiningDate: c.joiningDate || c.appliedDate || new Date().toISOString(), // Fallback
-                    status: 'Active'
-                }));
-            setCandidates(activeCandidates);
-        };
-        fetchData();
-    }, []);
+    const candidates = useMemo(() => {
+        if (!currentUser || !allCandidates || !currentUser.email) return [];
+    
+        const activeStatuses = ['Active', 'Selected', 'Joined'];
+        
+        // 1. Find the partner's configuration (case-insensitive email match).
+        const partnerVendor = vendors.find(v => v.email?.toLowerCase() === currentUser.email!.toLowerCase());
+
+        if (!partnerVendor) {
+            return []; // If no vendor config, they see nothing.
+        }
+        
+        // 2. Collect all identifiers for this partner.
+        const partnerEmail = currentUser.email.toLowerCase();
+        const partnerName = partnerVendor.partnerName;
+    
+        return allCandidates
+            .filter((c: any) => {
+                // First, ensure the candidate has an active status for this view
+                const isActiveStatus = activeStatuses.includes(c.status);
+                if (!isActiveStatus) return false;
+    
+                // 3. Filter candidates based on a strict match of partner name or email.
+                const candidatePartnerEmail = c.partnerEmail?.toLowerCase();
+                const candidatePartnerName = c.partnerName;
+
+                return (
+                    (partnerName && candidatePartnerName && candidatePartnerName === partnerName) ||
+                    (candidatePartnerEmail && candidatePartnerEmail === partnerEmail)
+                );
+            })
+            .map((c: any): ActiveCandidate => ({
+                id: c.id,
+                name: c.name,
+                client: c.vendor,
+                role: c.role,
+                storeName: c.storeLocation || c.storeName || 'N/A',
+                vendor: c.vendor,
+                joiningDate: c.joiningDate || c.appliedDate || new Date().toISOString(),
+                status: c.status,
+            }));
+    }, [currentUser, vendors, allCandidates]);
+
 
     const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -69,6 +106,7 @@ const PartnerActiveCandidatesView: React.FC = () => {
         const currentYear = now.getFullYear();
 
         const newJoiners = candidates.filter(c => {
+            if (c.status !== 'Joined') return false;
             const joiningDate = new Date(c.joiningDate);
             return joiningDate.getMonth() === currentMonth && joiningDate.getFullYear() === currentYear;
         }).length;
@@ -156,7 +194,7 @@ const PartnerActiveCandidatesView: React.FC = () => {
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{candidate.role}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(candidate.joiningDate).toLocaleDateString()}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClasses(candidate.status)}`}>
                                             {candidate.status}
                                         </span>
                                     </td>

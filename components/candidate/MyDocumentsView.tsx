@@ -1,8 +1,11 @@
+
 import React, { useState, useRef, ChangeEvent } from 'react';
 import Button from '../Button';
 import Input from '../Input';
 import Modal from '../Modal';
-import { FamilyMember } from '../../types';
+import { FamilyMember, AppUser } from '../../types';
+import { usePopup } from '../../contexts/PopupContext';
+import { updateUserProfile } from '../../services/firestoreService';
 
 interface Document {
   id: string;
@@ -12,6 +15,10 @@ interface Document {
 }
 
 type OnboardingStatus = 'Pending Submission' | 'Pending Verification' | 'Onboarding Complete';
+
+interface MyDocumentsViewProps {
+  currentUser: AppUser | null;
+}
 
 const OnboardingTracker: React.FC<{ status: OnboardingStatus }> = ({ status }) => {
     const steps = ['Submit Documents', 'HR Verification', 'Onboarding Complete'];
@@ -41,7 +48,7 @@ const OnboardingTracker: React.FC<{ status: OnboardingStatus }> = ({ status }) =
 };
 
 
-const MyDocumentsView: React.FC = () => {
+const MyDocumentsView: React.FC<MyDocumentsViewProps> = ({ currentUser }) => {
   const [documents, setDocuments] = useState<Document[]>([
     { id: 'resume', name: 'Resume / CV', status: 'Not Uploaded', fileName: null },
     { id: 'photo', name: 'Passport-size photo', status: 'Not Uploaded', fileName: null },
@@ -68,6 +75,9 @@ const MyDocumentsView: React.FC = () => {
   });
   const [memberAadharFile, setMemberAadharFile] = useState<File | null>(null);
   const [memberPhotoFile, setMemberPhotoFile] = useState<File | null>(null);
+
+  const { showPopup } = usePopup();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fileInputRefs = {
     resume: useRef<HTMLInputElement>(null),
@@ -145,10 +155,46 @@ const MyDocumentsView: React.FC = () => {
       }
   };
 
-  const handleSubmitForVerification = () => {
-    // In a real app, this would save all data and submit to the backend.
-    setOnboardingStatus('Pending Verification');
-    alert('Documents submitted for verification!');
+  const handleSubmitForVerification = async () => {
+    if (!currentUser) {
+        showPopup({ type: 'error', title: 'Not Logged In', message: 'You must be logged in to submit documents.' });
+        return;
+    }
+
+    const allDocsUploaded = documents.every(doc => doc.status === 'Uploaded');
+    if (!allDocsUploaded) {
+        showPopup({ type: 'error', title: 'Incomplete', message: 'Please upload all required documents before submitting.' });
+        return;
+    }
+
+    setIsSubmitting(true);
+    try {
+        const documentsToSave = documents.map(({ id, name, status, fileName }) => ({
+            id, name, status, fileName
+        }));
+
+        const profileUpdateData = {
+            // Fulfilling user request to "show name" in the document entry
+            name: currentUser.fullName, 
+            maritalStatus,
+            mobileNumber,
+            uan,
+            esi,
+            documents: documentsToSave,
+            familyMembers,
+            onboardingStatus: 'Pending Verification',
+        };
+
+        await updateUserProfile(currentUser.uid, profileUpdateData);
+        
+        setOnboardingStatus('Pending Verification');
+        showPopup({ type: 'success', title: 'Success!', message: 'Documents submitted for verification!' });
+    } catch (error) {
+        console.error("Error submitting documents:", error);
+        showPopup({ type: 'error', title: 'Error', message: 'An unknown error occurred while submitting your documents. Please try again.' });
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   // This is a temporary function for demonstration purposes to simulate HR approval.
@@ -292,7 +338,8 @@ const MyDocumentsView: React.FC = () => {
           variant="primary" 
           size="lg" 
           onClick={handleSubmitForVerification}
-          disabled={isSubmitted}
+          disabled={isSubmitted || isSubmitting}
+          loading={isSubmitting}
         >
           {onboardingStatus === 'Pending Submission' ? 'Save & Submit for Verification' : onboardingStatus === 'Pending Verification' ? 'Submitted' : 'Verified'}
         </Button>

@@ -1,20 +1,34 @@
+
+
+
+
+
+
 import React, { useState, useMemo, FC } from 'react';
-import { PartnerUpdatableCandidate, PartnerUpdateStatus } from '../../types';
+import { AppUser, PartnerUpdatableCandidate, PartnerUpdateStatus, UserType, Vendor } from '../../types';
+import { updateCandidate } from '../../services/firestoreService';
 import Input from '../Input';
 import Button from '../Button';
 import Modal from '../Modal';
 import StatCard from './StatCard';
+import { usePopup } from '../../contexts/PopupContext';
 
-// MOCK DATA has been removed.
-const MOCK_UPDATABLE_CANDIDATES: PartnerUpdatableCandidate[] = [];
+interface PartnerUpdateStatusViewProps {
+    currentUser: AppUser | null;
+    vendors: Vendor[];
+    candidates: any[];
+    showPopup: (config: any) => void;
+}
 
 const ALL_STATUSES: PartnerUpdateStatus[] = [
-    'Pending', 'Contacted - Interested', 'Contacted - Not Interested', 'Interview Scheduled', 'Interview Attended', 'Offer Accepted', 'Offer Rejected', 'Joined', 'Absconded'
+    'Pending', 'Contacted - Interested', 'Contacted - Not Interested', 
+    'Interview Scheduled', 'Interview Attended', 'Offer Accepted', 
+    'Offer Rejected', 'Joined', 'Absconded'
 ];
 
-const getStatusClasses = (status: PartnerUpdateStatus) => {
-    if (status.includes('Interested') || status.includes('Accepted') || status.includes('Joined') || status.includes('Attended')) return 'bg-green-100 text-green-800';
-    if (status.includes('Not Interested') || status.includes('Rejected') || status.includes('Absconded')) return 'bg-red-100 text-red-800';
+const getStatusClasses = (status: string) => {
+    if (status === 'Selected' || status.includes('Interested') || status.includes('Accepted') || status.includes('Joined') || status.includes('Attended')) return 'bg-green-100 text-green-800';
+    if (status === 'Rejected' || status.includes('Not Interested') || status.includes('Absconded')) return 'bg-red-100 text-red-800';
     if (status.includes('Scheduled')) return 'bg-blue-100 text-blue-800';
     return 'bg-yellow-100 text-yellow-800';
 };
@@ -31,9 +45,10 @@ const ICONS = {
 const UpdateStatusForm: FC<{ 
     candidate: PartnerUpdatableCandidate, 
     onSave: (id: string, newStatus: PartnerUpdateStatus, remarks: string) => void, 
-    onClose: () => void 
-}> = ({ candidate, onSave, onClose }) => {
-    const [newStatus, setNewStatus] = useState<PartnerUpdateStatus>(candidate.status);
+    onClose: () => void,
+    isSubmitting: boolean
+}> = ({ candidate, onSave, onClose, isSubmitting }) => {
+    const [newStatus, setNewStatus] = useState<PartnerUpdateStatus>('Interview Attended');
     const [remarks, setRemarks] = useState(candidate.remarks || '');
 
     const handleSave = () => {
@@ -67,51 +82,160 @@ const UpdateStatusForm: FC<{
                 />
             </div>
             <div className="flex justify-end gap-3 pt-4 border-t">
-                <Button variant="secondary" onClick={onClose}>Cancel</Button>
-                <Button variant="primary" onClick={handleSave}>Save Status</Button>
+                <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+                <Button variant="primary" onClick={handleSave} loading={isSubmitting}>Save Status</Button>
             </div>
         </div>
     );
 };
 
-const PartnerUpdateStatusView: React.FC = () => {
-    const [candidates, setCandidates] = useState<PartnerUpdatableCandidate[]>(MOCK_UPDATABLE_CANDIDATES);
+const CandidateCVModal: FC<{
+    candidate: PartnerUpdatableCandidate;
+    onClose: () => void;
+}> = ({ candidate, onClose }) => {
+    return (
+        <Modal
+            isOpen={true}
+            onClose={onClose}
+            title={`CV: ${candidate.name}`}
+            maxWidth="max-w-2xl"
+        >
+            <div className="font-sans text-gray-800 p-4 bg-gray-50 rounded-lg">
+                <header className="text-center pb-4 border-b-2 border-gray-200">
+                    <h1 className="text-3xl font-bold tracking-tight">{candidate.name}</h1>
+                    <p className="text-md text-blue-600 font-semibold mt-1">{candidate.role}</p>
+                    <p className="text-sm text-gray-500 mt-2">{candidate.phone}</p>
+                </header>
+
+                <section className="mt-6">
+                    <h2 className="text-lg font-semibold border-b pb-1 mb-3 text-gray-700">Application Details</h2>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <strong className="text-gray-500">Client / Brand:</strong>
+                        <span>{candidate.client}</span>
+
+                        <strong className="text-gray-500">Sourced By:</strong>
+                        <span>{candidate.vendor}</span>
+
+                        <strong className="text-gray-500">Last Updated:</strong>
+                        <span>{new Date(candidate.lastUpdated).toLocaleString()}</span>
+                        
+                        <strong className="text-gray-500">Current Status:</strong>
+                        <span className={`font-semibold ${getStatusClasses(candidate.status).replace('bg-', 'text-')}`}>{candidate.status}</span>
+                    </div>
+                </section>
+
+                {candidate.remarks && (
+                    <section className="mt-6">
+                        <h2 className="text-lg font-semibold border-b pb-1 mb-3 text-gray-700">Remarks</h2>
+                        <p className="text-sm text-gray-600 italic bg-white p-3 rounded border border-gray-200">
+                            "{candidate.remarks}"
+                        </p>
+                    </section>
+                )}
+            </div>
+            <div className="mt-6 flex justify-end">
+                <Button variant="secondary" onClick={onClose}>Close</Button>
+            </div>
+        </Modal>
+    );
+};
+
+
+const PartnerUpdateStatusView: React.FC<PartnerUpdateStatusViewProps> = ({ currentUser, vendors, candidates: allCandidates, showPopup }) => {
     const [filters, setFilters] = useState({
         search: '',
         client: '',
         role: '',
         status: '',
-        vendor: '',
         startDate: '',
         endDate: '',
+        storeName: '',
     });
     const [selectedCandidate, setSelectedCandidate] = useState<PartnerUpdatableCandidate | null>(null);
+    const [viewingCVCandidate, setViewingCVCandidate] = useState<PartnerUpdatableCandidate | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+
+    const partnerCandidates = useMemo(() => {
+        if (!currentUser || !allCandidates) return [];
+    
+        let relevantCandidates: any[] = [];
+    
+        if (currentUser.userType === UserType.PARTNER) {
+            if (!vendors || !currentUser.email) return [];
+            
+            // 1. Find the partner's configuration (case-insensitive email match).
+            const partnerVendor = vendors.find(v => v.email?.toLowerCase() === currentUser.email!.toLowerCase());
+    
+            if (!partnerVendor) {
+                return []; // If no vendor config, they see nothing.
+            }
+            
+            // 2. Collect all identifiers for this partner.
+            const partnerEmail = currentUser.email.toLowerCase();
+            const partnerName = partnerVendor.partnerName;
+            
+            // 3. Filter candidates based on a strict match of partner name or email.
+            // The broad brand-based check is removed to prevent partners from seeing
+            // other partners' candidates who might be hiring for the same brand.
+            relevantCandidates = allCandidates.filter(c => {
+                const candidatePartnerEmail = c.partnerEmail?.toLowerCase();
+                const candidatePartnerName = c.partnerName;
+        
+                return (
+                    (partnerName && candidatePartnerName && candidatePartnerName === partnerName) ||
+                    (candidatePartnerEmail && candidatePartnerEmail === partnerEmail)
+                );
+            });
+    
+        } else if (currentUser.userType === UserType.STORE_SUPERVISOR) {
+             // A candidate is visible to a supervisor if their 'supervisorEmail' field
+            // exactly matches the email of the logged-in supervisor.
+            relevantCandidates = allCandidates.filter(c => c.supervisorEmail === currentUser.email);
+        }
+    
+        return relevantCandidates
+            .map((c: any): PartnerUpdatableCandidate => ({
+                id: c.id,
+                name: c.name,
+                client: c.vendor,
+                partnerName: c.partnerName,
+                role: c.role,
+                phone: c.phone || 'N/A',
+                storeName: c.storeLocation || c.storeName || 'N/A',
+                // Display the most accurate current status or stage from the candidate record.
+                status: (c.status || c.stage || 'Pending') as PartnerUpdateStatus,
+                lastUpdated: c.updatedAt || c.appliedDate,
+                remarks: c.remarks || '',
+                vendor: c.recruiter || 'N/A'
+            }));
+    }, [currentUser, vendors, allCandidates]);
 
     const summaryStats = useMemo(() => {
         const stats = {
-            interviewLineups: 0,
+            interviewLineups: partnerCandidates.length,
             interviewDone: 0,
             interviewRejected: 0,
             interviewPending: 0,
-            vendorCounts: {} as Record<string, number>,
         };
 
-        candidates.forEach(c => {
-            if (c.status === 'Interview Scheduled') stats.interviewLineups++;
-            if (['Interview Attended', 'Offer Accepted', 'Joined'].includes(c.status)) stats.interviewDone++;
-            if (['Contacted - Not Interested', 'Offer Rejected', 'Absconded'].includes(c.status)) stats.interviewRejected++;
-            if (['Pending', 'Contacted - Interested'].includes(c.status)) stats.interviewPending++;
-            if (c.vendor) {
-                stats.vendorCounts[c.vendor] = (stats.vendorCounts[c.vendor] || 0) + 1;
+        partnerCandidates.forEach(c => {
+            if (['Interview Attended', 'Offer Accepted', 'Joined', 'Selected'].includes(c.status)) {
+                stats.interviewDone++;
+            } else if (['Rejected', 'Offer Rejected', 'Absconded', 'Not Interested', 'Contacted - Not Interested'].includes(c.status)) {
+                stats.interviewRejected++;
+            } else { 
+                stats.interviewPending++;
             }
         });
 
         return stats;
-    }, [candidates]);
+    }, [partnerCandidates]);
 
-    const uniqueClients = useMemo(() => [...new Set(candidates.map(c => c.client))], [candidates]);
-    const uniqueRoles = useMemo(() => [...new Set(candidates.map(c => c.role))], [candidates]);
-    const uniqueVendors = useMemo(() => [...new Set(candidates.map(c => c.vendor).filter(Boolean))], [candidates]) as string[];
+    const uniqueClients = useMemo(() => [...new Set(partnerCandidates.map(c => c.client))], [partnerCandidates]);
+    const uniqueRoles = useMemo(() => [...new Set(partnerCandidates.map(c => c.role))], [partnerCandidates]);
+    const uniqueStatuses = useMemo(() => [...new Set(partnerCandidates.map(c => c.status).filter(Boolean))], [partnerCandidates]) as string[];
+    const uniqueStoreNames = useMemo(() => [...new Set(partnerCandidates.map(c => c.storeName).filter(Boolean))], [partnerCandidates]);
+
 
     const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -123,9 +247,9 @@ const PartnerUpdateStatusView: React.FC = () => {
             client: '',
             role: '',
             status: '',
-            vendor: '',
             startDate: '',
             endDate: '',
+            storeName: '',
         });
     };
 
@@ -133,53 +257,74 @@ const PartnerUpdateStatusView: React.FC = () => {
         setSelectedCandidate(candidate);
     };
 
+    const handleViewCVClick = (candidate: PartnerUpdatableCandidate) => {
+        setViewingCVCandidate(candidate);
+    };
+
     const handleCloseModal = () => {
         setSelectedCandidate(null);
     };
 
-    const handleSaveStatus = (id: string, newStatus: PartnerUpdateStatus, remarks: string) => {
-        setCandidates(prev => prev.map(c => 
-            c.id === id 
-            ? { ...c, status: newStatus, remarks, lastUpdated: new Date().toISOString() } 
-            : c
-        ));
-        handleCloseModal();
-        alert('Status updated successfully!');
+    const handleSaveStatus = async (id: string, newStatus: PartnerUpdateStatus, remarks: string) => {
+        setIsLoading(true);
+        try {
+            const updateData: any = {
+                status: newStatus,
+                remarks: remarks,
+                updatedAt: new Date().toISOString()
+            };
+
+            // Also update the 'stage' if it's a major milestone
+            if (['Selected', 'Joined', 'Offer Accepted'].includes(newStatus)) {
+                updateData.stage = 'Selected';
+            } else if (newStatus.includes('Rejected') || newStatus.includes('Absconded')) {
+                updateData.stage = 'Rejected';
+            } else if (newStatus.includes('Interview')) {
+                updateData.stage = 'Interview';
+            }
+            
+            await updateCandidate(id, updateData);
+            showPopup({ type: 'success', title: 'Status Updated', message: 'Candidate status has been successfully updated.' });
+            handleCloseModal();
+        } catch (error) {
+            console.error("Failed to update candidate status:", error);
+            showPopup({ type: 'error', title: 'Update Failed', message: 'Could not update the candidate status.' });
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const filteredCandidates = useMemo(() => {
-        return candidates.filter(c => {
+        return partnerCandidates.filter(c => {
             const searchMatch = filters.search === '' ||
                 c.name.toLowerCase().includes(filters.search.toLowerCase()) ||
                 c.phone.toLowerCase().includes(filters.search.toLowerCase()) ||
                 c.client.toLowerCase().includes(filters.search.toLowerCase()) ||
-                c.role.toLowerCase().includes(filters.search.toLowerCase());
+                c.role.toLowerCase().includes(filters.search.toLowerCase()) ||
+                c.storeName.toLowerCase().includes(filters.search.toLowerCase());
             
             const clientMatch = filters.client === '' || c.client === filters.client;
             const roleMatch = filters.role === '' || c.role === filters.role;
             const statusMatch = filters.status === '' || c.status === filters.status;
-            const vendorMatch = filters.vendor === '' || c.vendor === filters.vendor;
+            const storeNameMatch = filters.storeName === '' || c.storeName === filters.storeName;
     
             const lastUpdatedDate = new Date(c.lastUpdated);
             const startDateMatch = filters.startDate === '' || lastUpdatedDate >= new Date(filters.startDate);
             const endDateMatch = filters.endDate === '' || lastUpdatedDate <= new Date(new Date(filters.endDate).setHours(23, 59, 59, 999));
     
-            return searchMatch && clientMatch && roleMatch && statusMatch && vendorMatch && startDateMatch && endDateMatch;
+            return searchMatch && clientMatch && roleMatch && statusMatch && storeNameMatch && startDateMatch && endDateMatch;
         });
-    }, [candidates, filters]);
+    }, [partnerCandidates, filters]);
 
     return (
         <div className="space-y-6">
-            <h2 className="text-3xl font-bold text-gray-800">Interview Status Updates</h2>
+            <h2 className="text-3xl font-bold text-gray-800">Candidate Pipeline</h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard title="Interview Line-ups" value={summaryStats.interviewLineups} valueColor="text-blue-600" icon={ICONS.lineup} />
-                <StatCard title="Interview Done" value={summaryStats.interviewDone} valueColor="text-green-600" icon={ICONS.done} />
-                <StatCard title="Interview Rejected" value={summaryStats.interviewRejected} valueColor="text-red-600" icon={ICONS.rejected} />
-                <StatCard title="Interview Pending" value={summaryStats.interviewPending} valueColor="text-yellow-600" icon={ICONS.pending} />
-                {Object.entries(summaryStats.vendorCounts).map(([vendor, count]) => (
-                    <StatCard key={vendor} title={vendor} value={count} valueColor="text-gray-700" icon={ICONS.vendor} />
-                ))}
+                <StatCard title="Total Candidates" value={summaryStats.interviewLineups.toString()} valueColor="text-blue-600" icon={ICONS.lineup} />
+                <StatCard title="Action Completed" value={summaryStats.interviewDone.toString()} valueColor="text-green-600" icon={ICONS.done} />
+                <StatCard title="Negative Status" value={summaryStats.interviewRejected.toString()} valueColor="text-red-600" icon={ICONS.rejected} />
+                <StatCard title="Pending Action" value={summaryStats.interviewPending.toString()} valueColor="text-yellow-600" icon={ICONS.pending} />
             </div>
 
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -188,7 +333,7 @@ const PartnerUpdateStatusView: React.FC = () => {
                         id="search"
                         name="search"
                         label="Search"
-                        placeholder="Name, Phone, Client, Role..."
+                        placeholder="Name, Phone, Store..."
                         value={filters.search}
                         onChange={handleFilterChange}
                         wrapperClassName="mb-0"
@@ -208,17 +353,17 @@ const PartnerUpdateStatusView: React.FC = () => {
                         </select>
                     </div>
                     <div>
+                        <label htmlFor="storeName" className="block text-sm font-medium text-gray-700 mb-1">Store Name</label>
+                        <select id="storeName" name="storeName" value={filters.storeName} onChange={handleFilterChange} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            <option value="">All</option>
+                            {uniqueStoreNames.map(store => <option key={store} value={store}>{store}</option>)}
+                        </select>
+                    </div>
+                     <div>
                         <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                         <select id="status" name="status" value={filters.status} onChange={handleFilterChange} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                             <option value="">All</option>
-                            {ALL_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="vendor" className="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
-                        <select id="vendor" name="vendor" value={filters.vendor} onChange={handleFilterChange} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                            <option value="">All</option>
-                            {uniqueVendors.map(vendor => <option key={vendor} value={vendor}>{vendor}</option>)}
+                            {uniqueStatuses.map(status => <option key={status} value={status}>{status}</option>)}
                         </select>
                     </div>
                     <Input
@@ -251,7 +396,8 @@ const PartnerUpdateStatusView: React.FC = () => {
                         <thead className="bg-gray-50">
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Candidate</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client / Role</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Partner / Brand / Role</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store Name</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Updated</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -265,9 +411,11 @@ const PartnerUpdateStatusView: React.FC = () => {
                                         <div className="text-sm text-gray-500">{candidate.phone}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <div>{candidate.client}</div>
+                                        <div className="font-semibold">{candidate.partnerName || 'Direct'}</div>
+                                        <div className="text-xs">{candidate.client}</div>
                                         <div className="text-xs text-gray-400">{candidate.role}</div>
                                     </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{candidate.storeName}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         {new Date(candidate.lastUpdated).toLocaleString()}
                                     </td>
@@ -276,14 +424,15 @@ const PartnerUpdateStatusView: React.FC = () => {
                                             {candidate.status}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                                        <Button variant="ghost" size="sm" onClick={() => handleViewCVClick(candidate)}>View CV</Button>
                                         <Button variant="primary" size="sm" onClick={() => handleUpdateClick(candidate)}>Update</Button>
                                     </td>
                                 </tr>
                             ))}
                              {filteredCandidates.length === 0 && (
                                 <tr>
-                                    <td colSpan={5} className="text-center py-10 text-gray-500">No candidates found.</td>
+                                    <td colSpan={6} className="text-center py-10 text-gray-500">No candidates found.</td>
                                 </tr>
                             )}
                         </tbody>
@@ -302,8 +451,16 @@ const PartnerUpdateStatusView: React.FC = () => {
                        candidate={selectedCandidate}
                        onSave={handleSaveStatus}
                        onClose={handleCloseModal}
+                       isSubmitting={isLoading}
                    />
                 </Modal>
+            )}
+
+            {viewingCVCandidate && (
+                <CandidateCVModal 
+                    candidate={viewingCVCandidate}
+                    onClose={() => setViewingCVCandidate(null)}
+                />
             )}
         </div>
     );

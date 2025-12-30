@@ -1,7 +1,8 @@
 
+
 import React, { useState, useEffect } from 'react';
 import Button from '../Button';
-import { getAttendanceData } from '../../services/supabaseService';
+import { getAttendanceData } from '../../services/firestoreService';
 
 interface AttendanceRow {
     id: string;

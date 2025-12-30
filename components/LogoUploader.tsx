@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Button from './Button';
 import Input from './Input';
+import { usePopup } from '../contexts/PopupContext';
 
 interface LogoUploaderProps {
   currentLogoSrc: string | null;
@@ -12,6 +13,7 @@ const LogoUploader: React.FC<LogoUploaderProps> = ({ currentLogoSrc, onLogoUploa
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentLogoSrc);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { showPopup } = usePopup();
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -46,7 +48,7 @@ const LogoUploader: React.FC<LogoUploaderProps> = ({ currentLogoSrc, onLogoUploa
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
           onLogoUpload(reader.result);
-          alert('Logo uploaded successfully!');
+          showPopup({ type: 'success', title: 'Success!', message: 'Logo uploaded successfully.'});
           setSelectedFile(null); // Clear selected file after upload
           // The App component will update currentLogoSrc, which will then update previewUrl
         }
@@ -55,7 +57,7 @@ const LogoUploader: React.FC<LogoUploaderProps> = ({ currentLogoSrc, onLogoUploa
         setError('Failed to read file.');
       };
     } catch (err) {
-      setError('An error occurred during upload.');
+      showPopup({ type: 'error', title: 'Upload Error', message: 'An error occurred during upload. Please try again.' });
       console.error('Logo upload error:', err);
     } finally {
       setLoading(false);

@@ -1,27 +1,5 @@
 // utils/salaryService.ts
-
-// --- INTERFACES ---
-
-export interface SalaryRule {
-  designation: string;
-  basic: {
-    percentage: number;
-    of: 'gross'; // Simplified for now
-  };
-  hra: {
-    percentage: number;
-    of: 'basic'; // Simplified for now
-  };
-  // New fixed monthly allowances
-  conveyance: number;
-  medical: number;
-  statutoryBonus: number;
-}
-
-export interface CTCBreakdown {
-  monthly: Record<string, number>;
-  annual: Record<string, number>;
-}
+import { SalaryRule, CTCBreakdown } from '../types';
 
 // --- CONSTANTS ---
 
@@ -49,38 +27,6 @@ const DEFAULT_RULE: SalaryRule = {
     statutoryBonus: 0,
 };
 
-const STORAGE_KEY = 'rkm_salary_rules';
-
-// --- LOCAL STORAGE HELPERS ---
-
-export const getRules = (): SalaryRule[] => {
-    try {
-        const rulesJson = localStorage.getItem(STORAGE_KEY);
-        return rulesJson ? JSON.parse(rulesJson) : [];
-    } catch (error) {
-        console.error("Failed to parse salary rules from localStorage", error);
-        return [];
-    }
-};
-
-export const saveRule = (newRule: SalaryRule) => {
-    const rules = getRules();
-    const existingIndex = rules.findIndex(r => r.designation === newRule.designation);
-    if (existingIndex > -1) {
-        rules[existingIndex] = newRule; // Update existing
-    } else {
-        rules.push(newRule); // Add new
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
-};
-
-export const deleteRule = (designation: string) => {
-    let rules = getRules();
-    rules = rules.filter(r => r.designation !== designation);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
-};
-
-
 // --- CALCULATION LOGIC ---
 
 export const calculateBreakdownFromRule = (annualCTC: number, rule: SalaryRule | undefined | null): CTCBreakdown => {
@@ -91,40 +37,61 @@ export const calculateBreakdownFromRule = (annualCTC: number, rule: SalaryRule |
     const effectiveRule = rule || DEFAULT_RULE;
     const annual: Record<string, number> = { ctc: annualCTC };
 
-    const basicPercentageOfGross = effectiveRule.basic.percentage / 100;
+    // FIX: Defensively parse rule values to ensure they are numbers, preventing calculation errors.
+    const basicPercentageOfGross = (parseFloat(String(effectiveRule.basic.percentage)) || 0) / 100;
+    const hraPercentageOfBasic = (parseFloat(String(effectiveRule.hra.percentage)) || 0) / 100;
+    const conveyance = parseFloat(String(effectiveRule.conveyance)) || 0;
+    const medical = parseFloat(String(effectiveRule.medical)) || 0;
+    const statutoryBonus = parseFloat(String(effectiveRule.statutoryBonus)) || 0;
 
-    // Determine ESI applicability based on an estimated gross salary.
-    // CTC = Gross + Employer PF + Employer ESI
-    // We can estimate Gross as roughly 94% of CTC for non-ESI, 90% for ESI.
-    // A threshold of 2.8L CTC is a rough guide for ESI applicability.
-    const isEsiApplicable = annualCTC <= 280000; 
+    // Iterative approach to find Gross, accounting for ESI threshold
+    let estimatedAnnualGross = annualCTC * 0.9; // Initial guess
+    let iterationCount = 0;
+    const MAX_ITERATIONS = 100;
+    const CONVERGENCE_THRESHOLD = 0.5; // less than 50 paise difference
 
-    // Solve for Gross Salary: CTC = Gross + (Gross * basic% * 12%) + (Gross * 3.25% if ESI)
-    const employerPFMultiplier = 0.12 * basicPercentageOfGross;
-    const employerESIMultiplier = isEsiApplicable ? 0.0325 : 0;
-    
-    annual.gross = annualCTC / (1 + employerPFMultiplier + employerESIMultiplier);
+    while (iterationCount < MAX_ITERATIONS) {
+        const isEsiApplicable = estimatedAnnualGross <= 21000 * 12; // ESI threshold is monthly gross 21000
+        const employerPFMultiplier = 0.12 * basicPercentageOfGross;
+        const employerESIMultiplier = isEsiApplicable ? 0.0325 : 0;
+        
+        const calculatedAnnualGross = annualCTC / (1 + employerPFMultiplier + employerESIMultiplier);
+        
+        if (Math.abs(estimatedAnnualGross - calculatedAnnualGross) < CONVERGENCE_THRESHOLD) {
+            estimatedAnnualGross = calculatedAnnualGross; // Converged
+            break;
+        }
+        estimatedAnnualGross = calculatedAnnualGross; // Update estimate
+        iterationCount++;
+    }
+
+    annual.gross = estimatedAnnualGross;
     
     // Earnings
     annual.basic = annual.gross * basicPercentageOfGross;
-    annual.hra = annual.basic * (effectiveRule.hra.percentage / 100);
-    annual.conveyance = (effectiveRule.conveyance || 0) * 12;
-    annual.medical = (effectiveRule.medical || 0) * 12;
-    annual.statutoryBonus = (effectiveRule.statutoryBonus || 0) * 12;
+    annual.hra = annual.basic * hraPercentageOfBasic;
+    annual.conveyance = conveyance * 12;
+    annual.medical = medical * 12;
+    annual.statutoryBonus = statutoryBonus * 12;
     
     annual.specialAllowance = Math.max(0, annual.gross - annual.basic - annual.hra - annual.conveyance - annual.medical - annual.statutoryBonus);
     
     // Employee Deductions (No Professional Tax as per image)
+    const isEsiApplicableForDeductions = annual.gross / 12 <= 21000;
     annual.employeePF = annual.basic * 0.12; // 12%
-    annual.employeeESI = isEsiApplicable ? (annual.gross * 0.0075) : 0; // 0.75%
+    annual.employeeESI = isEsiApplicableForDeductions ? (annual.gross * 0.0075) : 0; // 0.75%
     
     annual.totalDeductions = annual.employeePF + annual.employeeESI;
     annual.netSalary = annual.gross - annual.totalDeductions;
 
     // Employer Contributions
     annual.employerPF = annual.basic * 0.12;
-    annual.employerESI = isEsiApplicable ? (annual.gross * 0.0325) : 0;
+    annual.employerESI = isEsiApplicableForDeductions ? (annual.gross * 0.0325) : 0;
     
+    // Recalculate CTC based on actual derived gross and employer contributions, ensuring it matches initial input (minor rounding differences possible)
+    annual.ctc = annual.gross + annual.employerPF + annual.employerESI;
+
+
     const monthly = Object.fromEntries(
         Object.entries(annual).map(([key, value]) => [key, value / 12])
     ) as Record<string, number>;
@@ -138,44 +105,68 @@ export const calculateCTCFromNetSalary = (monthlyNet: number, rule: SalaryRule |
     }
 
     const effectiveRule = rule || DEFAULT_RULE;
-    let monthlyGross = monthlyNet * 1.25; // Start with a rough estimate
 
-    for (let i = 0; i < 20; i++) { // Iterate to converge on the correct gross
-        const monthlyBasic = monthlyGross * (effectiveRule.basic.percentage / 100);
-        
-        const employeePF = monthlyBasic * 0.12;
-        const employeeESI = monthlyGross <= 21000 ? monthlyGross * 0.0075 : 0;
+    // Fixed monthly allowances are included in gross but are not percentages
+    const conveyance = parseFloat(String(effectiveRule.conveyance)) || 0;
+    const medical = parseFloat(String(effectiveRule.medical)) || 0;
+    const statutoryBonus = parseFloat(String(effectiveRule.statutoryBonus)) || 0;
+    const fixedMonthlyAllowances = conveyance + medical + statutoryBonus;
+
+    const basicPercentageOfGross = (parseFloat(String(effectiveRule.basic.percentage)) || 0) / 100;
+    const hraPercentageOfBasic = (parseFloat(String(effectiveRule.hra.percentage)) || 0) / 100;
+
+    // Coefficients for deductions related to gross/basic
+    const pfRate = 0.12; // 12% of basic for employee and employer
+    const esiEmployeeRate = 0.0075; // 0.75% of gross
+    const esiEmployerRate = 0.0325; // 3.25% of gross
+    const ESI_THRESHOLD = 21000; // Monthly gross threshold for ESI
+
+    let monthlyGross = monthlyNet * 1.25; // Initial guess for gross
+    const MAX_ITERATIONS = 100;
+    const CONVERGENCE_THRESHOLD = 0.01; // 1 paisa difference
+
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+        const isEsiApplicable = monthlyGross <= ESI_THRESHOLD;
+
+        const basic = monthlyGross * basicPercentageOfGross;
+        const hra = basic * hraPercentageOfBasic;
+        // Special Allowance is the balancing figure to reach gross after other fixed and percentage earnings
+        const specialAllowance = Math.max(0, monthlyGross - basic - hra - fixedMonthlyAllowances);
+
+        const employeePF = basic * pfRate;
+        const employeeESI = isEsiApplicable ? (monthlyGross * esiEmployeeRate) : 0;
         
         const totalDeductions = employeePF + employeeESI;
         const calculatedNet = monthlyGross - totalDeductions;
 
-        if (Math.abs(calculatedNet - monthlyNet) < 0.5) { // If difference is less than 50 paise, break
-            break;
+        if (Math.abs(calculatedNet - monthlyNet) < CONVERGENCE_THRESHOLD) {
+            break; // Converged
         }
 
-        // Adjust gross for next iteration
-        monthlyGross = monthlyGross * (monthlyNet / calculatedNet);
+        // Adjust monthlyGross for the next iteration
+        monthlyGross = monthlyGross + (monthlyNet - calculatedNet) * 0.8; // Adjust with a dampening factor
+        if (monthlyGross < 0) monthlyGross = 0; // Prevent negative gross
     }
     
-    // Now we have a stable monthlyGross, calculate the final breakdown
+    // Final Calculation with converged monthlyGross
     const monthly: Record<string, number> = {};
     monthly.gross = monthlyGross;
-    monthly.basic = monthly.gross * (effectiveRule.basic.percentage / 100);
-    monthly.hra = monthly.basic * (effectiveRule.hra.percentage / 100);
     
-    monthly.conveyance = (effectiveRule.conveyance || 0);
-    monthly.medical = (effectiveRule.medical || 0);
-    monthly.statutoryBonus = (effectiveRule.statutoryBonus || 0);
-    
+    monthly.basic = monthly.gross * basicPercentageOfGross;
+    monthly.hra = monthly.basic * hraPercentageOfBasic;
+    monthly.conveyance = conveyance;
+    monthly.medical = medical;
+    monthly.statutoryBonus = statutoryBonus;
     monthly.specialAllowance = Math.max(0, monthly.gross - monthly.basic - monthly.hra - monthly.conveyance - monthly.medical - monthly.statutoryBonus);
 
-    monthly.employeePF = monthly.basic * 0.12;
-    monthly.employeeESI = monthly.gross <= 21000 ? monthly.gross * 0.0075 : 0;
+    const isEsiApplicableFinal = monthly.gross <= ESI_THRESHOLD;
+    monthly.employeePF = monthly.basic * pfRate;
+    monthly.employeeESI = isEsiApplicableFinal ? (monthly.gross * esiEmployeeRate) : 0;
     monthly.totalDeductions = monthly.employeePF + monthly.employeeESI;
     monthly.netSalary = monthly.gross - monthly.totalDeductions;
     
-    monthly.employerPF = monthly.basic * 0.12;
-    monthly.employerESI = monthly.gross <= 21000 ? monthly.gross * 0.0325 : 0;
+    monthly.employerPF = monthly.basic * pfRate;
+    monthly.employerESI = isEsiApplicableFinal ? (monthly.gross * esiEmployerRate) : 0;
     
     monthly.ctc = monthly.gross + monthly.employerPF + monthly.employerESI;
 

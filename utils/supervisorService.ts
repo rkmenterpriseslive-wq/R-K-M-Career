@@ -8,6 +8,7 @@ export interface StoreEmployee {
   phone: string;
   joiningDate: string;
   status: 'Active' | 'On Leave';
+  storeLocation: string;
 }
 
 export interface AttendanceRecord {
@@ -17,10 +18,10 @@ export interface AttendanceRecord {
 }
 
 const MOCK_STORE_EMPLOYEES: StoreEmployee[] = [
-    { id: 'SE001', name: 'Rohan Sharma', role: 'Sales Associate', phone: '9876500001', joiningDate: '2023-01-15', status: 'Active' },
-    { id: 'SE002', name: 'Priya Patel', role: 'Cashier', phone: '9876500002', joiningDate: '2023-03-10', status: 'Active' },
-    { id: 'SE003', name: 'Amit Singh', role: 'Store Keeper', phone: '9876500003', joiningDate: '2023-06-20', status: 'Active' },
-    { id: 'SE004', name: 'Kavita Das', role: 'Helper', phone: '9876500004', joiningDate: '2023-08-01', status: 'On Leave' },
+    { id: 'SE001', name: 'Rohan Sharma', role: 'Sales Associate', phone: '9876500001', joiningDate: '2023-01-15', status: 'Active', storeLocation: 'Alpha Store - Delhi' },
+    { id: 'SE002', name: 'Priya Patel', role: 'Cashier', phone: '9876500002', joiningDate: '2023-03-10', status: 'Active', storeLocation: 'Alpha Store - Delhi' },
+    { id: 'SE003', name: 'Amit Singh', role: 'Store Keeper', phone: '9876500003', joiningDate: '2023-06-20', status: 'Active', storeLocation: 'Beta Store - Mumbai' },
+    { id: 'SE004', name: 'Kavita Das', role: 'Helper', phone: '9876500004', joiningDate: '2023-08-01', status: 'On Leave', storeLocation: 'Beta Store - Mumbai' },
 ];
 
 const ATTENDANCE_KEY = 'rkm_store_attendance';

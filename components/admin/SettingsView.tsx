@@ -1,9 +1,15 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import Input from '../Input';
 import Button from '../Button';
-import { BrandingConfig, PanelConfig, AppUser } from '../../types';
+import { BrandingConfig, PanelConfig, AppUser, PartnerLogo, QuickLink, ContactConfig, SocialMediaConfig } from '../../types';
 import Modal from '../Modal';
+
+// Dynamically import PartnerSettingsView
+const PartnerSettingsView = lazy(() => import('./PartnerSettingsView'));
+// NEW: Dynamically import new settings views
+const QuickLinksSettingsView = lazy(() => import('./QuickLinksSettingsView'));
+const ContactSocialSettingsView = lazy(() => import('./ContactSocialSettingsView'));
+
 
 // --- Sub-components ---
 
@@ -166,7 +172,7 @@ const ToggleSwitch: React.FC<{
 const PanelOptionsView: React.FC<{ 
     onUpdateSettings: (update: any) => void; 
     locations: string[]; 
-    stores: { id: string; name: string; location: string }[];
+    stores: { id: string; name: string; location: string; interviewAddress?: string }[];
     jobRoles: string[];
     panelConfig?: PanelConfig;
 }> = ({ onUpdateSettings, locations, stores, jobRoles, panelConfig }) => {
@@ -178,7 +184,7 @@ const PanelOptionsView: React.FC<{
     const [modalType, setModalType] = useState<'JobRole' | 'Location' | 'Store'>('JobRole');
     const [newItemValue, setNewItemValue] = useState(''); // For roles and locations
     // For stores, we might need a richer object, but keeping it simple as per screenshot implication
-    const [newStoreData, setNewStoreData] = useState({ name: '', location: '' });
+    const [newStoreData, setNewStoreData] = useState({ name: '', location: '', interviewAddress: '' });
 
     const handleConfigChange = (key: keyof PanelConfig, val: boolean) => {
         const newConfig = { ...config, [key]: val };
@@ -189,7 +195,7 @@ const PanelOptionsView: React.FC<{
     const openAddModal = (type: 'JobRole' | 'Location' | 'Store') => {
         setModalType(type);
         setNewItemValue('');
-        setNewStoreData({ name: '', location: '' });
+        setNewStoreData({ name: '', location: '', interviewAddress: '' });
         setIsModalOpen(true);
     };
 
@@ -203,8 +209,13 @@ const PanelOptionsView: React.FC<{
                 onUpdateSettings({ locations: [...(locations || []), newItemValue.trim()] });
             }
         } else if (modalType === 'Store') {
-            if (newStoreData.name.trim()) {
-                const newStore = { id: Date.now().toString(), name: newStoreData.name.trim(), location: newStoreData.location.trim() };
+            if (newStoreData.name.trim() && newStoreData.location.trim()) {
+                const newStore = { 
+                    id: Date.now().toString(), 
+                    name: newStoreData.name.trim(), 
+                    location: newStoreData.location.trim(),
+                    interviewAddress: newStoreData.interviewAddress.trim()
+                };
                 onUpdateSettings({ stores: [...(stores || []), newStore] });
             }
         }
@@ -259,7 +270,13 @@ const PanelOptionsView: React.FC<{
                 <ListManagementCard 
                     title="Store Names" 
                     items={stores} 
-                    renderItem={(item) => <div className="flex flex-col"><span className="font-medium">{item.name}</span><span className="text-xs text-gray-500">{item.location}</span></div>}
+                    renderItem={(item) => (
+                        <div className="flex flex-col">
+                            <span className="font-medium">{item.name}</span>
+                            <span className="text-xs text-gray-500">{item.location}</span>
+                            {item.interviewAddress && <span className="text-xs text-gray-400 mt-1 truncate" title={item.interviewAddress}>Interview: {item.interviewAddress}</span>}
+                        </div>
+                    )}
                     onAddItem={() => openAddModal('Store')}
                     onDeleteItem={(item) => handleDeleteItem('Store', item)}
                 />
@@ -271,15 +288,27 @@ const PanelOptionsView: React.FC<{
                         <>
                             <Input id="storeName" label="Store Name" value={newStoreData.name} onChange={(e) => setNewStoreData({...newStoreData, name: e.target.value})} required />
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Store Location (Optional)</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Store Location</label>
                                 <select 
                                     className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                                     value={newStoreData.location}
                                     onChange={(e) => setNewStoreData({...newStoreData, location: e.target.value})}
+                                    required
                                 >
                                     <option value="">Select Location</option>
                                     {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
                                 </select>
+                            </div>
+                            <div>
+                                <label htmlFor="interviewAddress" className="block text-sm font-medium text-gray-700 mb-1">Interview Address (Optional)</label>
+                                <textarea
+                                    id="interviewAddress"
+                                    rows={3}
+                                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                    value={newStoreData.interviewAddress}
+                                    onChange={(e) => setNewStoreData({...newStoreData, interviewAddress: e.target.value})}
+                                    placeholder="Full address for walk-in interviews at this store."
+                                />
                             </div>
                         </>
                     ) : (
@@ -343,6 +372,7 @@ const BrandingSettingsView: React.FC<{
         if (file) {
             const reader = new FileReader();
             reader.onloadend = () => {
+                // FIX: Corrected a typo where `files[0]` was used instead of `file` to read the uploaded logo file, causing a reference error.
                 onLogoUpload(reader.result as string);
             };
             reader.readAsDataURL(file);
@@ -450,7 +480,6 @@ const TeamAndRolesView: React.FC<{ onOpenAddModal: () => void; teamMembers: any[
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Name</th>
                                 <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Role</th>
-                                <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Post</th>
                                 <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Manager</th>
                                 <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Salary</th>
                                 <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
@@ -460,11 +489,10 @@ const TeamAndRolesView: React.FC<{ onOpenAddModal: () => void; teamMembers: any[
                             {teamMembers.length > 0 ? teamMembers.map(member => (
                                 <tr key={member.id} className="hover:bg-gray-50">
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                        {member.fullName}
+                                        {member.fullName || member.teamMember}
                                         <div className="text-xs text-gray-500">{member.email}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{member.role}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{member.post || '-'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{member.reportingManager || '-'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{member.salary || '-'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -473,7 +501,7 @@ const TeamAndRolesView: React.FC<{ onOpenAddModal: () => void; teamMembers: any[
                                 </tr>
                             )) : (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-20 text-center text-gray-500 text-sm">
+                                    <td colSpan={5} className="px-6 py-20 text-center text-gray-500 text-sm">
                                         No team members added yet.
                                     </td>
                                 </tr>
@@ -498,7 +526,7 @@ interface PermissionRow {
 
 const INITIAL_PERMISSIONS: PermissionRow[] = [
     { feature: 'Manage Job Board', hr: true, teamLead: false, teamMember: false, partner: false },
-    { feature: 'Vendor Directory', hr: true, teamLead: true, teamMember: false, partner: true },
+    { feature: 'Vendor Directory', hr: true, teamLead: true, teamMember: false, partner: false },
     { feature: 'Demo Requests', hr: false, teamLead: false, teamMember: false, partner: false },
     { feature: 'Revenue', hr: false, teamLead: false, teamMember: false, partner: false },
 ];
@@ -587,12 +615,23 @@ const PermissionsSettingsView: React.FC = () => {
 // ... (MyAccountView - unchanged)
 const MyAccountView: React.FC<{ currentUser?: AppUser | null }> = ({ currentUser }) => {
     // ... (unchanged)
-    // Mock state initialization based on currentUser
+    // Initialization now uses data from currentUser prop
     const [profile, setProfile] = useState({
-        fullName: 'Admin User', // Default or fetch from profile service if available
+        fullName: currentUser?.fullName || '',
         email: currentUser?.email || '',
-        phone: '+1 234 567 890'
+        phone: currentUser?.phone || ''
     });
+
+    useEffect(() => {
+        if (currentUser) {
+            setProfile({
+                fullName: currentUser.fullName || '',
+                email: currentUser.email || '',
+                phone: currentUser.phone || ''
+            });
+        }
+    }, [currentUser]);
+
 
     const [passwords, setPasswords] = useState({
         current: '',
@@ -736,19 +775,26 @@ interface SettingsViewProps {
     systemRoles?: SystemRole[]; // New prop for system roles
     locations: string[];
     stores: { id: string; name: string; location: string }[];
+    partnerLogos: PartnerLogo[];
     panelConfig?: PanelConfig; // New prop
     currentUser?: AppUser | null; // Added prop
     currentLogoSrc: string | null;
     onLogoUpload: (base64: string) => void;
     onOpenAddTeamMemberModal: () => void;
     teamMembers?: any[]; // New prop for team list
+    // NEW: Added props for Quick Links, Contact Info, Social Media
+    quickLinks: QuickLink[];
+    contactInfo: ContactConfig;
+    socialMedia: SocialMediaConfig;
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ 
-    onUpdateBranding, branding, onUpdateSettings, vendors, jobRoles, systemRoles, locations, stores, panelConfig, currentUser, currentLogoSrc, onLogoUpload, onOpenAddTeamMemberModal, teamMembers = [] 
+    onUpdateBranding, branding, onUpdateSettings, vendors, jobRoles, systemRoles, locations, stores, partnerLogos, panelConfig, currentUser, currentLogoSrc, onLogoUpload, onOpenAddTeamMemberModal, teamMembers = [],
+    quickLinks, contactInfo, socialMedia // NEW: Destructure new settings props
 }) => {
+    // NEW: Added new tabs
     const [activeTab, setActiveTab] = useState('Team & Roles');
-    const tabs = ['Team & Roles', 'Permissions', 'Role', 'Panel Options', 'My Account', 'Branding'];
+    const tabs = ['Team & Roles', 'Permissions', 'Role', 'Panel Options', 'Quick Links', 'Contact Us & Social Media', 'Partners', 'My Account', 'Branding'];
 
     const renderTabContent = () => {
         switch(activeTab) {
@@ -766,6 +812,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                     jobRoles={jobRoles} 
                     panelConfig={panelConfig}
                 />;
+            case 'Quick Links': // NEW: Render QuickLinksSettingsView
+                return (
+                    <Suspense fallback={<div>Loading...</div>}>
+                        <QuickLinksSettingsView quickLinks={quickLinks} onUpdateSettings={onUpdateSettings} />
+                    </Suspense>
+                );
+            case 'Contact Us & Social Media': // NEW: Render ContactSocialSettingsView
+                return (
+                    <Suspense fallback={<div>Loading...</div>}>
+                        <ContactSocialSettingsView contactInfo={contactInfo} socialMedia={socialMedia} onUpdateSettings={onUpdateSettings} />
+                    </Suspense>
+                );
+            case 'Partners':
+                return (
+                    <Suspense fallback={<div>Loading...</div>}>
+                        <PartnerSettingsView partnerLogos={partnerLogos} onUpdateSettings={onUpdateSettings} />
+                    </Suspense>
+                );
             case 'My Account':
                 return <MyAccountView currentUser={currentUser} />;
             case 'Branding': 

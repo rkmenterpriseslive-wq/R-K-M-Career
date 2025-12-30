@@ -1,22 +1,44 @@
-import React, { useState, useMemo } from 'react';
-import { StoreEmployee } from '../../utils/supervisorService';
-import * as supervisorService from '../../utils/supervisorService';
-import Input from '../Input';
 
-const StoreEmployeesView: React.FC = () => {
-    const [employees] = useState<StoreEmployee[]>(supervisorService.getStoreEmployees());
+import React, { useState, useMemo } from 'react';
+import Input from '../Input';
+import { AppUser } from '../../types';
+
+interface StoreEmployeesViewProps {
+    currentUser: AppUser | null;
+    candidates: any[];
+}
+
+const getStatusClasses = (status: string) => {
+    if (status === 'Selected' || status === 'Joined') return 'bg-green-100 text-green-800';
+    if (status === 'Active') return 'bg-blue-100 text-blue-800';
+    return 'bg-gray-100 text-gray-800';
+};
+
+const StoreEmployeesView: React.FC<StoreEmployeesViewProps> = ({ currentUser, candidates }) => {
     const [searchTerm, setSearchTerm] = useState('');
 
-    const filteredEmployees = useMemo(() => {
-        return employees.filter(emp =>
-            emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            emp.role.toLowerCase().includes(searchTerm.toLowerCase())
+    const activeCandidates = useMemo(() => {
+        if (!currentUser || !currentUser.storeLocation) {
+            return [];
+        }
+        const activeStatuses = ['Active', 'Selected', 'Joined'];
+        return candidates.filter(c => 
+            c.storeLocation === currentUser.storeLocation &&
+            activeStatuses.includes(c.status)
         );
-    }, [employees, searchTerm]);
+    }, [currentUser, candidates]);
+
+    const filteredCandidates = useMemo(() => {
+        if (!searchTerm.trim()) return activeCandidates;
+        return activeCandidates.filter(c =>
+            (c.name && c.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (c.role && c.role.toLowerCase().includes(searchTerm.toLowerCase()))
+        );
+    }, [activeCandidates, searchTerm]);
 
     return (
         <div className="space-y-6">
-            <h2 className="text-3xl font-bold text-gray-800">Store Employees</h2>
+            <h2 className="text-3xl font-bold text-gray-800">In-Store Active Candidates</h2>
             
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                 <Input
@@ -33,28 +55,35 @@ const StoreEmployeesView: React.FC = () => {
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                             <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Candidate</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Joining Date</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Applied/Joining Date</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {filteredEmployees.map(emp => (
-                                <tr key={emp.id}>
+                            {filteredCandidates.map(c => (
+                                <tr key={c.id}>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm font-medium text-gray-900">{emp.name}</div>
-                                        <div className="text-xs text-gray-500">{emp.phone}</div>
+                                        <div className="text-sm font-medium text-gray-900">{c.name}</div>
+                                        <div className="text-xs text-gray-500">{c.phone || c.contact}</div>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{emp.role}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{new Date(emp.joiningDate).toLocaleDateString()}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{c.role}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{new Date(c.joiningDate || c.appliedDate).toLocaleDateString()}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${emp.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                            {emp.status}
+                                        <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClasses(c.status)}`}>
+                                            {c.status}
                                         </span>
                                     </td>
                                 </tr>
                             ))}
+                             {filteredCandidates.length === 0 && (
+                                <tr>
+                                    <td colSpan={4} className="text-center py-10 text-gray-500">
+                                        No active candidates found for this store.
+                                    </td>
+                                </tr>
+                            )}
                         </tbody>
                     </table>
                 </div>

@@ -9,7 +9,7 @@ interface RequirementsBreakdownViewProps {
 }
 
 const RequirementsBreakdownView: React.FC<RequirementsBreakdownViewProps> = ({ data }) => {
-    const [activeTab, setActiveTab] = useState<BreakdownTab>('Team Wise');
+    const [activeTab, setActiveTab] = useState<BreakdownTab>('Partner Wise');
 
     const tabs: BreakdownTab[] = ['Team Wise', 'Partner Wise', 'Store Wise', 'Role Wise'];
 
@@ -87,13 +87,13 @@ const RequirementsBreakdownView: React.FC<RequirementsBreakdownViewProps> = ({ d
                     <tbody className="bg-white divide-y divide-gray-200">
                         {tableData.length > 0 ? tableData.map(row => (
                             <tr key={row.id}>
-                                <td className="px-6 py-4 font-medium">{row.name}</td>
+                                <td className="px-6 py-4 font-bold text-gray-800">{row.name}</td>
                                 {columns.map(col => (
                                     <td key={col.header} className="px-6 py-4 text-xs">{col.render(row)}</td>
                                 ))}
-                                <td className="px-6 py-4">{row.totalOpenings}</td>
-                                <td className="px-6 py-4">{row.pending}</td>
-                                <td className="px-6 py-4">{row.approved}</td>
+                                <td className="px-6 py-4 text-sm font-semibold">{row.totalOpenings}</td>
+                                <td className="px-6 py-4 text-sm font-semibold text-yellow-600">{row.pending}</td>
+                                <td className="px-6 py-4 text-sm font-semibold text-green-600">{row.approved}</td>
                             </tr>
                         )) : (
                             <tr>
@@ -115,15 +115,11 @@ const RequirementsBreakdownView: React.FC<RequirementsBreakdownViewProps> = ({ d
                     <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
-                        className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 shadow-sm ${
+                        className={`px-6 py-2 rounded-md text-sm font-semibold transition-all duration-200 shadow-sm ${
                             activeTab === tab 
-                                ? 'bg-yellow-400 text-gray-800 shadow-md' 
-                                : 'bg-blue-400 text-white hover:bg-blue-500'
+                                ? 'bg-yellow-400 text-gray-900' 
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
                         }`}
-                        style={{
-                            backgroundImage: activeTab !== tab ? 'url("data:image/svg+xml,%3Csvg width=\'6\' height=\'6\' viewBox=\'0 0 6 6\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.1\' fill-rule=\'evenodd\'%3E%3Cpath d=\'M5 0h1L0 6V5zM6 5v1H5z\'/%3E%3C/g%3E%3C/svg%3E")' : 'url("data:image/svg+xml,%3Csvg width=\'6\' height=\'6\' viewBox=\'0 0 6 6\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%23000000\' fill-opacity=\'0.1\' fill-rule=\'evenodd\'%3E%3Cpath d=\'M5 0h1L0 6V5zM6 5v1H5z\'/%3E%3C/g%3E%3C/svg%3E")',
-                            textShadow: '0 1px 1px rgba(0,0,0,0.1)'
-                        }}
                     >
                         {tab}
                     </button>

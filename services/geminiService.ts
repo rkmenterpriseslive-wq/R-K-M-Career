@@ -20,7 +20,7 @@ export const generateJobDescription = async (keywords: string): Promise<string> 
       config: {
         temperature: 0.7,
         maxOutputTokens: 250, // Limit output to roughly 250 tokens
-        // FIX: Added thinkingConfig to reserve tokens for the final output when maxOutputTokens is set.
+        // FIX: Added thinkingConfig to reserve tokens for the final output when maxOutputTokens is set, as per guidelines.
         thinkingConfig: { thinkingBudget: 100 },
         systemInstruction: "You are a professional HR assistant specializing in writing clear and engaging job descriptions.",
       },

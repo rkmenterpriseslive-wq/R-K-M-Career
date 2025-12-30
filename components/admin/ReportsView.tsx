@@ -1,22 +1,22 @@
 
-import React, { useState } from 'react';
+
+import React, { useState, useMemo, lazy, Suspense } from 'react';
 import Button from '../Button';
-import Input from '../Input';
 import DailyReportDetailView from './DailyReportDetailView';
+import { AppUser, UserType, TeamMemberPerformance } from '../../types';
+
+// Lazy load report detail components for better performance
+const DailyLineupReportView = lazy(() => import('./DailyLineupReportView'));
+const SelectionPipelineReportView = lazy(() => import('./SelectionPipelineReportView'));
+const RecruiterPerformanceReportView = lazy(() => import('./RecruiterPerformanceReportView'));
+
 
 interface ReportType {
     id: string;
     title: string;
     description: string;
     icon: React.ReactNode;
-}
-
-interface GeneratedReport {
-    id: string;
-    name: string;
-    date: string;
-    generatedBy: string;
-    downloadUrl: string;
+    isViewable?: boolean;
 }
 
 const REPORT_TYPES: ReportType[] = [
@@ -24,19 +24,22 @@ const REPORT_TYPES: ReportType[] = [
         id: 'daily-report',
         title: 'Daily Report',
         description: 'View and export daily submissions and selections.',
-        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>,
+        isViewable: true,
     },
     {
         id: 'daily-lineup',
         title: 'Daily Lineup Report',
         description: 'Daily candidate submission and call status logs.',
-        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>,
+        isViewable: true,
     },
     {
         id: 'selection-pipeline',
         title: 'Selection Pipeline',
         description: 'Candidates stage-wise status from Sourced to Selected.',
-        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>,
+        isViewable: true,
     },
     {
         id: 'attendance-commission',
@@ -60,17 +63,30 @@ const REPORT_TYPES: ReportType[] = [
         id: 'recruiter-performance',
         title: 'Recruiter Performance',
         description: 'Efficiency metrics for individual team members.',
-        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
+        isViewable: true,
     },
 ];
 
-const ReportsView: React.FC<{ userType: any, currentUser: any }> = ({ userType, currentUser }) => {
+interface GeneratedReport {
+    id: string;
+    name: string;
+    date: string;
+    generatedBy: string;
+    downloadUrl: string;
+}
+
+interface ReportsViewProps {
+    userType: UserType;
+    currentUser: AppUser | null;
+    candidates: any[];
+    teamPerformance: TeamMemberPerformance[];
+}
+
+const ReportsView: React.FC<ReportsViewProps> = ({ userType, currentUser, candidates, teamPerformance }) => {
     const [selectedReport, setSelectedReport] = useState<ReportType | null>(null);
-    const [showDetailView, setShowDetailView] = useState(false);
-    const [recentReports, setRecentReports] = useState<GeneratedReport[]>([
-        { id: 'r1', name: 'Attendance_Oct2023.csv', date: 'Oct 26, 2023', generatedBy: 'Admin', downloadUrl: '#' },
-        { id: 'r2', name: 'Daily_Lineup_W4_Oct.xlsx', date: 'Oct 25, 2023', generatedBy: 'Rahul', downloadUrl: '#' },
-    ]);
+    const [activeDetailView, setActiveDetailView] = useState<string | null>(null);
+    const [recentReports, setRecentReports] = useState<GeneratedReport[]>([]);
     
     // Configuration Form State
     const [dateRange, setDateRange] = useState({ start: '', end: '' });
@@ -79,7 +95,6 @@ const ReportsView: React.FC<{ userType: any, currentUser: any }> = ({ userType, 
 
     const handleReportSelect = (report: ReportType) => {
         setSelectedReport(report);
-        setShowDetailView(false);
         // Reset form
         setDateRange({ start: '', end: '' });
         setFormat('Excel');
@@ -88,37 +103,186 @@ const ReportsView: React.FC<{ userType: any, currentUser: any }> = ({ userType, 
     const handleGenerate = () => {
         if (!selectedReport) return;
 
-        if (format === 'View') {
-            setShowDetailView(true);
+        if (format === 'View' && selectedReport.isViewable) {
+            setActiveDetailView(selectedReport.id);
+            return;
+        }
+
+        if (format === 'PDF') {
+            alert('PDF export is not implemented. Please choose CSV or Excel to download a CSV file.');
             return;
         }
 
         setIsGenerating(true);
+
+        // Helper function for CSV generation
+        const escapeCSV = (str: any): string => {
+            if (str === undefined || str === null) return '';
+            const val = String(str);
+            if (val.includes(',') || val.includes('\n') || val.includes('"')) {
+                const escapedVal = val.replace(/"/g, '""');
+                return `"${escapedVal}"`;
+            }
+            return val;
+        };
+
+        const downloadCSV = (headers: string[], rows: string[][], fileName: string) => {
+            const csvContent = [
+                headers.join(','),
+                ...rows.map(row => row.join(','))
+            ].join('\n');
+    
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute("download", fileName);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
+        const startDate = dateRange.start ? new Date(dateRange.start) : null;
+        const endDate = dateRange.end ? new Date(dateRange.end) : null;
+        if (endDate) endDate.setHours(23, 59, 59, 999);
+
+        const filteredCandidates = (candidates || []).filter(c => {
+            const appliedDate = c.appliedDate ? new Date(c.appliedDate) : null;
+            if (!appliedDate) return false;
+            return (!startDate || appliedDate >= startDate) && (!endDate || appliedDate <= endDate);
+        });
+
+        const fileNameBase = `${selectedReport.title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`;
         
-        // Simulate API call
-        setTimeout(() => {
-            const newReport: GeneratedReport = {
+        let reportGenerated = false;
+
+        switch (selectedReport.id) {
+            case 'daily-report': {
+                const submissions = filteredCandidates.filter(c => c.callStatus === 'Interested');
+                const selections = filteredCandidates.filter(c => c.stage === 'Selected');
+                
+                const headers = ["Report Type", "Recruiter", "Client", "Position", "Candidate Name", "Mobile No", "Location", "Status"];
+                
+                const submissionRows = submissions.map((c: any) => [
+                    escapeCSV('Submission'),
+                    escapeCSV(c.recruiter),
+                    escapeCSV(c.vendor),
+                    escapeCSV(c.role),
+                    escapeCSV(c.name),
+                    escapeCSV(c.phone),
+                    escapeCSV(c.location),
+                    escapeCSV(c.callStatus),
+                ]);
+
+                const selectionRows = selections.map((c: any) => [
+                    escapeCSV('Selection'),
+                    escapeCSV(c.recruiter),
+                    escapeCSV(c.vendor),
+                    escapeCSV(c.role),
+                    escapeCSV(c.name),
+                    escapeCSV(c.phone),
+                    escapeCSV(c.location),
+                    escapeCSV(c.stage),
+                ]);
+
+                downloadCSV(headers, [...submissionRows, ...selectionRows], `${fileNameBase}.csv`);
+                reportGenerated = true;
+                break;
+            }
+            case 'daily-lineup': {
+                const headers = ["Recruiter", "Client", "Position", "Candidate", "Mobile No", "Location", "Call Status", "Applied Date"];
+                const rows = filteredCandidates.map((c: any) => [
+                    escapeCSV(c.recruiter),
+                    escapeCSV(c.vendor),
+                    escapeCSV(c.role),
+                    escapeCSV(c.name),
+                    escapeCSV(c.phone),
+                    escapeCSV(c.location),
+                    escapeCSV(c.callStatus),
+                    escapeCSV(c.appliedDate ? new Date(c.appliedDate).toLocaleDateString() : ''),
+                ]);
+                downloadCSV(headers, rows, `${fileNameBase}.csv`);
+                reportGenerated = true;
+                break;
+            }
+            case 'selection-pipeline': {
+                 const headers = ["Candidate Name", "Role", "Vendor", "Store Location", "Status", "Stage", "Applied Date"];
+                 const rows = filteredCandidates.map((c: any) => [
+                    escapeCSV(c.name),
+                    escapeCSV(c.role),
+                    escapeCSV(c.vendor),
+                    escapeCSV(c.storeLocation),
+                    escapeCSV(c.status),
+                    escapeCSV(c.stage),
+                    escapeCSV(c.appliedDate ? new Date(c.appliedDate).toLocaleDateString() : ''),
+                 ]);
+                 downloadCSV(headers, rows, `${fileNameBase}.csv`);
+                 reportGenerated = true;
+                break;
+            }
+            case 'recruiter-performance': {
+                const headers = ["Recruiter", "Total Submissions", "Interested", "Interview", "Selected", "Joined"];
+                const stats: Record<string, { submissions: number, interested: number, interview: number, selected: number, joined: number }> = {};
+                
+                const recruiters = teamPerformance.map(tm => tm.fullName).filter(Boolean) as string[];
+                recruiters.forEach(recruiter => {
+                    stats[recruiter] = { submissions: 0, interested: 0, interview: 0, selected: 0, joined: 0 };
+                });
+
+                filteredCandidates.forEach(c => {
+                    if (c.recruiter && recruiters.includes(c.recruiter)) {
+                        stats[c.recruiter].submissions++;
+                        if (c.callStatus === 'Interested') stats[c.recruiter].interested++;
+                        if (c.stage === 'Interview') stats[c.recruiter].interview++;
+                        if (c.stage === 'Selected') stats[c.recruiter].selected++;
+                        if (c.status === 'Joined') stats[c.recruiter].joined++;
+                    }
+                });
+                
+                const rows = Object.entries(stats).map(([recruiter, data]) => [
+                    escapeCSV(recruiter),
+                    escapeCSV(data.submissions),
+                    escapeCSV(data.interested),
+                    escapeCSV(data.interview),
+                    escapeCSV(data.selected),
+                    escapeCSV(data.joined),
+                ]);
+                downloadCSV(headers, rows, `${fileNameBase}.csv`);
+                reportGenerated = true;
+                break;
+            }
+            default:
+                alert(`Export for "${selectedReport.title}" is not implemented yet.`);
+        }
+
+        if (reportGenerated) {
+             const newReport: GeneratedReport = {
                 id: `r${Date.now()}`,
-                name: `${selectedReport.title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.${format === 'Excel' ? 'xlsx' : 'pdf'}`,
+                name: `${fileNameBase}.csv`,
                 date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
                 generatedBy: currentUser?.email?.split('@')[0] || 'User',
-                downloadUrl: '#'
+                downloadUrl: '#' // This is now just for display
             };
             setRecentReports([newReport, ...recentReports]);
-            setIsGenerating(false);
-            alert(`${selectedReport.title} generated successfully!`);
-        }, 1500);
+        }
+        
+        setIsGenerating(false);
     };
-
-    if (showDetailView) {
-        return <DailyReportDetailView onBack={() => setShowDetailView(false)} />;
+    
+    if (activeDetailView) {
+        return (
+            <Suspense fallback={<div className="text-center p-10">Loading Report...</div>}>
+                {activeDetailView === 'daily-report' && <DailyReportDetailView onBack={() => setActiveDetailView(null)} candidates={candidates} />}
+                {activeDetailView === 'daily-lineup' && <DailyLineupReportView onBack={() => setActiveDetailView(null)} candidates={candidates} />}
+                {activeDetailView === 'selection-pipeline' && <SelectionPipelineReportView onBack={() => setActiveDetailView(null)} candidates={candidates} />}
+                {activeDetailView === 'recruiter-performance' && <RecruiterPerformanceReportView onBack={() => setActiveDetailView(null)} candidates={candidates} teamMembers={teamPerformance} />}
+            </Suspense>
+        );
     }
 
     return (
         <div className="space-y-8">
             <div>
                 <h2 className="text-3xl font-bold text-gray-800">Reports Center</h2>
-                <p className="text-gray-600 mt-1">Generate and download system-wide reports.</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -193,7 +357,7 @@ const ReportsView: React.FC<{ userType: any, currentUser: any }> = ({ userType, 
                                                 <option value="Excel">Excel (.xlsx)</option>
                                                 <option value="PDF">PDF (.pdf)</option>
                                                 <option value="CSV">CSV (.csv)</option>
-                                                {selectedReport.id === 'daily-report' && (
+                                                {selectedReport.isViewable && (
                                                     <option value="View">View on Screen</option>
                                                 )}
                                             </select>

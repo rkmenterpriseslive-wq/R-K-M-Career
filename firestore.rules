@@ -1,0 +1,142 @@
+
+rules_version = '2';
+
+// --- Helper Functions ---
+// These functions check a user's role by reading their 'userType' from the /users/{uid} document.
+
+function getUserData(uid) {
+  return get(/databases/$(database)/documents/users/$(uid)).data;
+}
+
+function isAdmin(auth) {
+  return auth != null && getUserData(auth.uid).userType == 'ADMIN';
+}
+
+function isHR(auth) {
+  return auth != null && getUserData(auth.uid).userType == 'HR';
+}
+
+function isTeamLead(auth) {
+  return auth != null && getUserData(auth.uid).userType == 'TEAMLEAD';
+}
+
+function isTeam(auth) {
+  return auth != null && getUserData(auth.uid).userType == 'TEAM';
+}
+
+function isPartner(auth) {
+  return auth != null && getUserData(auth.uid).userType == 'PARTNER';
+}
+
+function isStoreSupervisor(auth) {
+  return auth != null && getUserData(auth.uid).userType == 'STORE_SUPERVISOR';
+}
+
+function isAuthenticated(auth) {
+  return auth != null;
+}
+
+function isOwner(auth, userId) {
+  return auth != null && auth.uid == userId;
+}
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- PUBLIC COLLECTIONS ---
+
+    // Allows anyone to view job listings on the homepage.
+    match /jobs/{jobId} {
+      allow read: if true;
+      // Only Admin or HR can create, update, or delete jobs.
+      allow write: if isAdmin(request.auth) || isHR(request.auth);
+    }
+
+    // Allows the app to fetch public settings like the logo, even before login.
+    match /settings/{settingId} {
+      allow read: if true;
+      // Only Admin can modify settings.
+      allow write: if isAdmin(request.auth);
+    }
+
+
+    // --- AUTHENTICATED COLLECTIONS ---
+
+    // This rule allows the role-checking helper functions to work.
+    // It also allows team members to see each other for performance tables.
+    match /users/{userId} {
+      allow read: if isAuthenticated(request.auth) && 
+                    (isOwner(request.auth, userId) || isAdmin(request.auth) || isHR(request.auth) || isTeamLead(request.auth) || isTeam(request.auth) || isPartner(request.auth) || isStoreSupervisor(request.auth));
+      allow create: if isOwner(request.auth, userId);
+      allow update: if isOwner(request.auth, userId) || isAdmin(request.auth) || isHR(request.auth);
+      allow delete: if isAdmin(request.auth);
+    }
+
+    match /candidates/{candidateId} {
+      // Create: Allowed if you are an admin/team member OR you are creating a record for yourself (applying).
+      allow create: if (isAdmin(request.auth) || isHR(request.auth) || isTeamLead(request.auth) || isTeam(request.auth)) || 
+                       (isAuthenticated(request.auth) && request.resource.data.userId == request.auth.uid);
+    
+      // Read: Allowed by admins/team, partners, supervisors or if you are the owner of the record.
+      allow read: if (isAdmin(request.auth) || isHR(request.auth) || isTeamLead(request.auth) || isTeam(request.auth) || isPartner(request.auth) || isStoreSupervisor(request.auth)) ||
+                     (isAuthenticated(request.auth) && resource.data.userId == request.auth.uid);
+                     
+      // Update/Delete: Only allowed by admins/team.
+      allow update, delete: if isAdmin(request.auth) || isHR(request.auth) || isTeamLead(request.auth) || isTeam(request.auth) || isPartner(request.auth) || isStoreSupervisor(request.auth);
+    }
+
+    match /complaints/{complaintId} {
+      allow read: if isAuthenticated(request.auth);
+      // Creating a complaint
+      allow create: if isAuthenticated(request.auth) &&
+                      request.resource.data.userId == request.auth.uid &&
+                      request.resource.data.status == 'Open';
+      // Updating a complaint
+      allow update: if isAdmin(request.auth) || isHR(request.auth);
+      allow delete: if isAdmin(request.auth) || isHR(request.auth);
+    }
+
+    match /partner_requirements/{reqId} {
+      allow read: if isAdmin(request.auth) || isHR(request.auth) || isPartner(request.auth);
+      allow create: if isPartner(request.auth);
+      allow update, delete: if isAdmin(request.auth) || isHR(request.auth);
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if isAuthenticated(request.auth);
+      allow create, update: if isAdmin(request.auth) || isHR(request.auth) || isStoreSupervisor(request.auth);
+      allow delete: if isAdmin(request.auth);
+    }
+
+    // New collection for shift start/end times
+    match /shifts/{shiftId} {
+      function isShiftOwner(shift) {
+        return request.auth.uid == shift.data.userId;
+      }
+      allow read, update: if isAuthenticated(request.auth) && (isShiftOwner(resource) || isAdmin(request.auth) || isHR(request.auth) || isStoreSupervisor(request.auth));
+      allow create: if isAuthenticated(request.auth) && request.auth.uid == request.resource.data.userId;
+      // No delete for now to preserve records.
+    }
+
+    // New collection for demo requests from public "Hire us" form
+    match /demo_requests/{requestId} {
+      allow create: if true; // Anyone can create a request
+      allow read, delete: if isAdmin(request.auth) || isHR(request.auth); // Only admin/hr can view/delete
+    }
+
+    match /resignations/{resignationId} {
+        allow create: if isAuthenticated(request.auth) && request.resource.data.employeeId == request.auth.uid;
+        allow read: if (isAuthenticated(request.auth) && resource.data.employeeId == request.auth.uid) || isAdmin(request.auth) || isHR(request.auth);
+        allow update: if isAdmin(request.auth) || isHR(request.auth);
+        allow delete: if isAdmin(request.auth);
+    }
+
+    // New collection for store supervisors, managed by partners (for their own) or admin/HR (all)
+    match /store_supervisors/{supervisorId} {
+        allow create: if isPartner(request.auth); // Partners can create supervisors
+        allow read: if isPartner(request.auth) || isAdmin(request.auth) || isHR(request.auth);
+        allow update: if (isPartner(request.auth) && resource.data.partnerId == request.auth.uid) || isAdmin(request.auth) || isHR(request.auth);
+        allow delete: if isAdmin(request.auth) || isHR(request.auth); // Only Admin/HR can delete
+    }
+  }
+}

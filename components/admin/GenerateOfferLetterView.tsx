@@ -1,10 +1,24 @@
-import React, { useState, useRef, useEffect } from 'react';
+
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Input from '../Input';
 import Button from '../Button';
-import { getRules, calculateBreakdownFromRule, SalaryRule, CTCBreakdown, initialBreakdown } from '../../utils/salaryService';
+// FIX: Imported `initialBreakdown` from `salaryService` where it's defined, instead of from `types`.
+import { SalaryRule, CTCBreakdown, Vendor } from '../../types';
+import { calculateBreakdownFromRule, initialBreakdown } from '../../utils/salaryService';
+
 
 // Add this line to inform TypeScript about the global html2pdf function
 declare const html2pdf: any;
+
+interface GenerateOfferLetterViewProps {
+    portalName: string;
+    logoSrc: string | null;
+    salaryRules: SalaryRule[];
+    candidates: any[];
+    onOfferGenerated: (candidateId: string) => void;
+    initialCandidateData?: any | null;
+    vendors: Vendor[];
+}
 
 // --- Helper Functions ---
 const formatCurrency = (amount: number) => `₹ ${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -37,23 +51,76 @@ const numberToWords = (num: number): string => {
     return words.trim();
 };
 
+const getDayWithSuffix = (day: number): string => {
+    if (day > 3 && day < 21) return day + 'th'; // 4th to 20th
+    switch (day % 10) {
+        case 1: return day + 'st';
+        case 2: return day + 'nd';
+        case 3: return day + 'rd';
+        default: return day + 'th';
+    }
+};
+
+const formatOfferDate = (dateString: string) => {
+    if (!dateString) return "[Date]";
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return "[Invalid Date]";
+    
+    const day = date.getDate();
+    const month = date.toLocaleString('en-GB', { month: 'long' });
+    const year = date.getFullYear();
+    return `${getDayWithSuffix(day)} ${month} ${year}`;
+};
+
 
 // --- Sub-components for the Letter ---
-const LetterHeader: React.FC = () => (
-    <div className="flex items-center justify-between pb-4">
-        <div className="w-20 h-20 bg-white border-2 border-blue-900 rounded-full flex items-center justify-center">
-            <span className="text-4xl font-bold text-blue-900">R</span>
+interface LetterHeaderProps {
+    portalName: string;
+    logoSrc: string | null;
+}
+
+const LetterHeader: React.FC<LetterHeaderProps> = ({ portalName, logoSrc }) => (
+    <div className="relative h-28 flex items-center text-blue-900 font-serif bg-white overflow-hidden">
+        {/* Dark blue diagonal graphic */}
+        <div className="absolute top-0 left-0 h-full w-full bg-[#191e44] z-0"
+             style={{ 
+                 // This clip-path creates a top-left triangle that matches the letterhead image.
+                 // Points: (0% 0%, 30% 0%, 0% 100%) -> top-left, 30% across top, bottom-left.
+                 clipPath: 'polygon(0% 0%, 30% 0%, 0% 100%)' 
+             }} 
+        />
+        
+        {/* Logo Container (on top of the dark blue triangle) */}
+        <div className="relative z-10 flex-shrink-0 ml-6">
+            {logoSrc ? (
+                <img src={logoSrc} alt="Company Logo" className="w-20 h-20 object-contain rounded-full bg-white p-1 shadow-md" />
+            ) : (
+                <div className="w-20 h-20 bg-white border-2 border-blue-900 rounded-full flex items-center justify-center shadow-md">
+                    <span className="text-4xl font-bold">{portalName.charAt(0)}</span>
+                </div>
+            )}
         </div>
-        <h2 className="text-4xl font-bold text-blue-900 tracking-wider">R.K.M ENTERPRISE</h2>
+
+        {/* Company Name (pushed to the right) */}
+        <h2 className="relative z-10 ml-auto pr-6 text-4xl font-bold text-blue-900 tracking-wider">
+            {portalName}
+        </h2>
     </div>
 );
 
-const LetterFooter: React.FC<{ pageNum: number, totalPages: number }> = ({ pageNum, totalPages }) => (
-    <div className="mt-auto pt-4 text-center text-xs text-gray-700 border-t-2 border-blue-900">
-        <p>Regd. Office:- Plot No 727 Razapur Shastri Nagar Ghaziabad, UP 201001</p>
-        <p>E-Mail:- info@rkm-enterprises.com, Phone no.- +91 9616411654,</p>
-        <p>CIN:- U74999UP2022PTC164246</p>
-        <p className="text-right mt-2 font-semibold">Page {pageNum} of {totalPages}</p>
+const LetterFooter: React.FC = () => (
+    <div className="relative h-20 bg-[#191e44] text-white flex items-center px-6 text-xs font-serif overflow-hidden">
+        {/* Light blue diagonal graphic on the right */}
+        <div className="absolute top-0 right-0 h-full w-1/3 bg-[#3498db] z-0"
+             style={{ 
+                 // Adjusted clip-path to match the image: wider stripe, starting higher, ending lower on the right
+                 clipPath: 'polygon(70% 0%, 100% 0%, 100% 100%, 50% 100%)'
+             }}
+        />
+        <div className="relative z-10">
+            <p>Regd. Office:- Plot No 727 Razapur Shastri Nagar Ghaziabad, UP 201001</p>
+            <p>E-Mail:- info@rkm-enterprises.com, Phone no.- +91 9616411654, CIN:- U74999UP2022PTC164246</p>
+        </div>
     </div>
 );
 
@@ -71,7 +138,7 @@ const BreakdownTable: React.FC<{breakdown: CTCBreakdown, candidateName: string, 
                     <tr>
                         <th className="border border-black p-1 text-left font-semibold">{candidateName || "[Candidate Name]"}</th>
                         <th className="border border-black p-1 text-right font-semibold" colSpan={2}>
-                           DOJ: {doj ? new Date(doj).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : "[Date of Joining]"}
+                           DOJ: {doj ? formatOfferDate(doj) : "[Date of Joining]"}
                         </th>
                     </tr>
                     <tr className="font-semibold text-center">
@@ -104,7 +171,7 @@ const BreakdownTable: React.FC<{breakdown: CTCBreakdown, candidateName: string, 
 };
 
 
-const GenerateOfferLetterView: React.FC = () => {
+const GenerateOfferLetterView: React.FC<GenerateOfferLetterViewProps> = ({ portalName, logoSrc, salaryRules, candidates, onOfferGenerated, initialCandidateData, vendors }) => {
     const today = new Date().toISOString().split('T')[0];
     const [formData, setFormData] = useState({
         candidateName: '',
@@ -112,33 +179,100 @@ const GenerateOfferLetterView: React.FC = () => {
         offerDate: today,
         jobTitle: '',
         startDate: '',
-        clientName: 'Organic Circle Pvt. Ltd.',
+        partnerName: 'Organic Circle Pvt. Ltd.',
         annualCTC: '',
     });
-    const [rules, setRules] = useState<SalaryRule[]>([]);
+    const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
     const [breakdown, setBreakdown] = useState<CTCBreakdown>(initialBreakdown);
     const [isDownloading, setIsDownloading] = useState(false);
     const letterContentRef = useRef<HTMLDivElement>(null);
+    const totalPages = 3; // Hardcoded for this letter structure
 
-    useEffect(() => {
-        setRules(getRules());
-    }, []);
+    const selectedCandidates = useMemo(() => {
+        return (candidates || []).filter(c => c.stage === 'Selected' && c.status !== 'Joined' && c.status !== 'Offer Released');
+    }, [candidates]);
+
+    const brandToPartnerMap = useMemo(() => {
+        const map = new Map<string, string>();
+        (vendors || []).forEach(vendor => {
+            if (vendor.partnerName) {
+                (vendor.brandNames || []).forEach(brand => {
+                    map.set(brand, vendor.partnerName!);
+                });
+            }
+        });
+        return map;
+    }, [vendors]);
 
     useEffect(() => {
         const ctc = parseFloat(formData.annualCTC);
-        const selectedRule = rules.find(r => r.designation === formData.jobTitle);
+        const selectedRule = salaryRules.find(r => r.designation === formData.jobTitle);
         setBreakdown(calculateBreakdownFromRule(ctc, selectedRule));
-    }, [formData.annualCTC, formData.jobTitle, rules]);
+    }, [formData.annualCTC, formData.jobTitle, salaryRules]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
+    const handleClearForm = () => {
+        setFormData({
+            candidateName: '',
+            email: '',
+            offerDate: today,
+            jobTitle: '',
+            startDate: '',
+            partnerName: 'Organic Circle Pvt. Ltd.',
+            annualCTC: '',
+        });
+        setSelectedCandidateId(null);
+    };
+    
+    const handleCandidateSelectionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const candidateId = e.target.value;
+        const selected = selectedCandidates.find(c => c.id === candidateId);
+
+        if (selected) {
+            const partnerName = brandToPartnerMap.get(selected.vendor) || selected.vendor || 'Organic Circle Pvt. Ltd.';
+            setFormData(prev => ({
+                ...prev,
+                candidateName: selected.name || '',
+                email: selected.email || '',
+                jobTitle: selected.role || '',
+                partnerName: partnerName,
+                // Reset fields that need new input
+                startDate: '',
+                annualCTC: '',
+            }));
+            setSelectedCandidateId(selected.id);
+        } else {
+            handleClearForm();
+        }
+    };
+
+    useEffect(() => {
+        // This effect runs when a candidate is passed from the Selected Candidates page
+        if (initialCandidateData) {
+            const partnerName = brandToPartnerMap.get(initialCandidateData.vendor) || initialCandidateData.vendor || 'Organic Circle Pvt. Ltd.';
+
+            setFormData(prev => ({
+                ...prev,
+                candidateName: initialCandidateData.name || '',
+                email: initialCandidateData.email || '',
+                jobTitle: initialCandidateData.role || '',
+                partnerName: partnerName,
+                // Reset fields that need new input for this specific candidate
+                startDate: '',
+                annualCTC: '',
+            }));
+            setSelectedCandidateId(initialCandidateData.id);
+        }
+    }, [initialCandidateData, brandToPartnerMap]);
+
     const handleDownloadPdf = () => {
         if (!letterContentRef.current) return;
-        if (!formData.candidateName) {
-            alert("Please enter the candidate's name before downloading.");
+        if (!selectedCandidateId) {
+            alert("Please select a candidate from the dropdown before downloading.");
             return;
         }
 
@@ -153,13 +287,19 @@ const GenerateOfferLetterView: React.FC = () => {
             jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
         };
 
-        html2pdf().from(element).set(opt).save().then(() => setIsDownloading(false));
+        html2pdf().from(element).set(opt).save().then(() => {
+            setIsDownloading(false);
+            if(selectedCandidateId) {
+                onOfferGenerated(selectedCandidateId);
+            }
+            handleClearForm();
+        });
     };
 
     const selectStyles = "block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm";
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-6">
             <style>{`
                 @media print {
                     .no-print { display: none; }
@@ -170,90 +310,111 @@ const GenerateOfferLetterView: React.FC = () => {
                 .letter-preview .page { min-height: 10.5in; display: flex; flex-direction: column; padding: 0.5in; box-sizing: border-box; }
                 .letter-preview .page:last-child { page-break-after: avoid; }
             `}</style>
-            {/* Form Panel */}
-            <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-fit sticky top-6 no-print">
-                <h2 className="text-2xl font-bold text-gray-800 mb-4">Offer Letter Details</h2>
-                <form className="space-y-4 text-sm">
-                    <Input id="candidateName" name="candidateName" label="Candidate Name" value={formData.candidateName} onChange={handleChange} required />
-                    <Input id="email" name="email" label="Candidate Email" type="email" value={formData.email} onChange={handleChange} required />
-                    <div>
-                        <label htmlFor="jobTitle" className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
-                        <select id="jobTitle" name="jobTitle" value={formData.jobTitle} onChange={handleChange} className={selectStyles} required>
-                            <option value="">Select a designation</option>
-                            {rules.map(rule => (<option key={rule.designation} value={rule.designation}>{rule.designation}</option>))}
-                        </select>
-                    </div>
-                    <Input id="annualCTC" name="annualCTC" label="Annual CTC (₹)" type="number" value={formData.annualCTC} onChange={handleChange} required />
-                    <Input id="startDate" name="startDate" label="Joining Date" type="date" value={formData.startDate} onChange={handleChange} required />
-                    <Input id="clientName" name="clientName" label="Client Name" value={formData.clientName} onChange={handleChange} />
-                    <div className="pt-4 flex">
-                       <Button type="button" variant="primary" className="w-full justify-center" onClick={handleDownloadPdf} loading={isDownloading}>Download PDF</Button>
-                    </div>
-                </form>
-            </div>
+            <h2 className="text-3xl font-bold text-gray-800">Generate Offer Letter</h2>
 
-            {/* Letter Preview Panel */}
-            <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm">
-                <div ref={letterContentRef} className="letter-preview">
-                    {/* --- PAGE 1 --- */}
-                    <div className="page">
-                        <LetterHeader />
-                        <h1 className="text-center font-bold text-xl my-4 underline">OFFER LETTER</h1>
-                        <div className="grid grid-cols-2 gap-4 my-4">
-                            <div><strong>DATE:</strong> {new Date(formData.offerDate).toLocaleDateString('en-GB')}</div>
-                            <div className="text-right">
-                                <p><strong>NAME:</strong> {formData.candidateName || "[Candidate Name]"}</p>
-                                <p><strong>EMAIL:</strong> {formData.email || "[Candidate Email]"}</p>
-                            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Form Panel */}
+                <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-fit sticky top-6 no-print">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Offer Letter Details</h2>
+                    <form className="space-y-4 text-sm">
+                        <div>
+                            <label htmlFor="candidate-select" className="block text-sm font-medium text-gray-700 mb-1">Candidate Name</label>
+                            <select
+                                id="candidate-select"
+                                value={selectedCandidateId || ''}
+                                onChange={handleCandidateSelectionChange}
+                                className={selectStyles}
+                                required
+                            >
+                                <option value="">Select a Candidate...</option>
+                                {selectedCandidates.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name} ({c.role})</option>
+                                ))}
+                            </select>
                         </div>
-                        <p className="mt-4"><strong>DEAR {formData.candidateName ? formData.candidateName.toUpperCase() : "[CANDIDATE NAME]"},</strong></p>
-                        <p>With reference to the discussions we had, we are pleased to offer you the position of “<strong>{formData.jobTitle || "[Job Title]"}</strong>” with <strong>R K M enterprises.</strong></p>
-                        <p>You are expected to join on “<strong>{formData.startDate ? new Date(formData.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : "[Joining Date]"}</strong>”, failing which, Prime Hire Services Pvt. Ltd. reserves the right to rescind this letter. Your employment will be confirmed upon successful completion of a probation period of <strong>Three months (the same will be communicated to you via mail/letter)</strong>. During the probation period, your employment can be terminated on an immediate basis if your performance does not meet the expected standard or there are discipline/insubordination issues faced from your end.</p>
-                        <p className="font-bold mt-4">After the completion of probation period:</p>
-                        <ul className="list-disc pl-6 space-y-2">
-                            <li>Your daily attendance will be subject to achievement of specified minimum sales on that day which is considered as Qualified Working Day. Exact criteria of minimum sales will be communicated to you in advance from time to time through WhatsApp groups basis company's decision.</li>
-                            <li>The contract shall be terminable by either party giving 12 working days (Qualified working days – as per minimum sales criteria) notice in writing or salary in lieu of notice during the contract period.</li>
-                            <li>In case of any misconduct or non-performance at any time during the period of your service with us, we reserve the right to terminate your services without any pay and prior intimation.</li>
-                        </ul>
-                        <p className="mt-4">Your Annual Cost to Company (CTC) will be “<strong>{formatCurrency(parseFloat(formData.annualCTC) || 0)}” ({numberToWords(parseFloat(formData.annualCTC) || 0)} Only)</strong> as detailed in Annexure “A” and your work location will be required to work onsite as per the client requirement ({formData.clientName || '[Client Name]'}).</p>
-                        <LetterFooter pageNum={1} totalPages={3} />
-                    </div>
+                        <Input id="email" name="email" label="Candidate Email" type="email" value={formData.email} onChange={handleChange} required disabled className="bg-gray-100" />
+                        <div>
+                            <label htmlFor="jobTitle" className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
+                            <select id="jobTitle" name="jobTitle" value={formData.jobTitle} onChange={handleChange} className={`${selectStyles} bg-gray-100`} required disabled>
+                                <option value="">Select a designation</option>
+                                {(salaryRules || []).map(rule => (<option key={rule.designation} value={rule.designation}>{rule.designation}</option>))}
+                            </select>
+                        </div>
+                        <Input id="annualCTC" name="annualCTC" label="Annual CTC (₹)" type="number" value={formData.annualCTC} onChange={handleChange} required />
+                        <Input id="startDate" name="startDate" label="Joining Date" type="date" value={formData.startDate} onChange={handleChange} required />
+                        <Input id="partnerName" name="partnerName" label="Partner Name" value={formData.partnerName} onChange={handleChange} disabled className="bg-gray-100" />
+                        <div className="pt-4 flex gap-2">
+                           <Button type="button" variant="secondary" className="w-full justify-center" onClick={handleClearForm}>Clear Form</Button>
+                           <Button type="button" variant="primary" className="w-full justify-center" onClick={handleDownloadPdf} loading={isDownloading} disabled={!selectedCandidateId}>Download PDF</Button>
+                        </div>
+                    </form>
+                </div>
 
-                    {/* --- PAGE 2 --- */}
-                    <div className="page">
-                        <LetterHeader />
-                        <div className="flex-grow pt-8">
-                            <p>Within seven (7) days of accepting our offer, please send us a copy of your resignation letter/mail, duly accepted by your current organization (not applicable to fresher’s).</p>
-                            <p>You are required to acknowledge this mail within 24 hours failing which this letter stands null and void. We welcome you to PHI family and look forward to a long and fruitful association.</p>
-                            <p className="mt-8">Sincerely,</p>
-                            <div className="mt-16 space-y-2">
-                                <p className="font-bold">R KM ENTERPRISES</p>
-                                <p><strong>Head HR (Officiating)</strong></p>
-                            </div>
-                            <div className="mt-24 pt-8">
-                                <p className="border-t border-black pt-2"><strong>Name and Signature of Employee</strong></p>
-                            </div>
-                        </div>
-                        <LetterFooter pageNum={2} totalPages={3} />
-                    </div>
-                    
-                    {/* --- PAGE 3 --- */}
-                    {breakdown.annual.ctc > 0 && (
+                {/* Letter Preview Panel */}
+                <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm">
+                    <div ref={letterContentRef} className="letter-preview">
+                        {/* --- PAGE 1 --- */}
                         <div className="page">
-                            <LetterHeader />
-                            <div className="flex-grow pt-4">
-                                <BreakdownTable breakdown={breakdown} candidateName={formData.candidateName} doj={formData.startDate} />
-                                <div className="mt-16">
-                                    <p><strong>ACCEPTANCE:</strong></p>
-                                    <p>I have read and understood the above terms and conditions of employment and hereby signify my acceptance of the same.</p>
-                                    <div className="mt-24 pt-8">
-                                        <p className="border-t border-black pt-2"><strong>Name and Signature of Employee</strong></p>
-                                    </div>
+                            <LetterHeader portalName={portalName} logoSrc={logoSrc} />
+                            <h1 className="text-center font-bold text-xl my-4 underline">OFFER LETTER</h1>
+                            <div className="grid grid-cols-2 gap-4 my-4">
+                                <div><strong>DATE:</strong> {formatOfferDate(formData.offerDate)}</div>
+                                <div className="text-right">
+                                    <p><strong>NAME:</strong> {formData.candidateName || "[Candidate Name]"}</p>
+                                    <p><strong>EMAIL:</strong> {formData.email || "[Candidate Email]"}</p>
                                 </div>
                             </div>
-                            <LetterFooter pageNum={3} totalPages={3} />
+                            <p className="mt-4"><strong>DEAR {formData.candidateName ? formData.candidateName.toUpperCase() : "[CANDIDATE NAME]"},</strong></p>
+                            <p>With reference to the discussions we had, we are pleased to offer you the position of “<strong>{formData.jobTitle || "[Job Title]"}</strong>” with <strong>R K M enterprises.</strong></p>
+                            <p>You are expected to join on “<strong>{formData.startDate ? formatOfferDate(formData.startDate) : "[Joining Date]"}</strong>”, failing which, Prime Hire Services Pvt. Ltd. reserves the right to rescind this letter. Your employment will be confirmed upon successful completion of a probation period of <strong>Three months (the same will be communicated to you via mail/letter)</strong>. During the probation period, your employment can be terminated on an immediate basis if your performance does not meet the expected standard or there are discipline/insubordination issues faced from your end.</p>
+                            <p className="font-bold mt-4">After the completion of probation period:</p>
+                            <ul className="list-disc pl-6 space-y-2">
+                                <li>Your daily attendance will be subject to achievement of specified minimum sales on that day which is considered as Qualified Working Day. Exact criteria of minimum sales will be communicated to you in advance from time to time through WhatsApp groups basis company's decision.</li>
+                                <li>The contract shall be terminable by either party giving 12 working days (Qualified working days – as per minimum sales criteria) notice in writing or salary in lieu of notice during the contract period.</li>
+                                <li>In case of any misconduct or non-performance at any time during the period of your service with us, we reserve the right to terminate your services without any pay and prior intimation.</li>
+                            </ul>
+                            <p className="mt-4">Your Annual Cost to Company (CTC) will be “<strong>{formatCurrency(parseFloat(formData.annualCTC) || 0)}” ({numberToWords(parseFloat(formData.annualCTC) || 0)} Only)</strong> as detailed in Annexure “A” and your work location will be required to work onsite as per the partner requirement ({formData.partnerName || '[Partner Name]'}).</p>
+                            <p className="text-right mt-auto text-xs font-semibold text-gray-700">Page 1 of {totalPages}</p>
                         </div>
-                    )}
+
+                        {/* --- PAGE 2 --- */}
+                        <div className="page">
+                            <LetterHeader portalName={portalName} logoSrc={logoSrc} />
+                            <div className="flex-grow pt-8">
+                                <p>Within seven (7) days of accepting our offer, please send us a copy of your resignation letter/mail, duly accepted by your current organization (not applicable to fresher’s).</p>
+                                <p>You are required to acknowledge this mail within 24 hours failing which this letter stands null and void. We welcome you to PHI family and look forward to a long and fruitful association.</p>
+                                <p className="mt-8">Sincerely,</p>
+                                <div className="mt-16 space-y-2">
+                                    <p className="font-bold">R KM ENTERPRISES</p>
+                                    <p><strong>Head HR (Officiating)</strong></p>
+                                </div>
+                                <div className="mt-24 pt-8">
+                                    <p className="border-t border-black pt-2"><strong>Name and Signature of Employee</strong></p>
+                                </div>
+                            </div>
+                            <p className="text-right mt-auto text-xs font-semibold text-gray-700">Page 2 of {totalPages}</p>
+                        </div>
+                        
+                        {/* --- PAGE 3 --- */}
+                        {breakdown.annual.ctc > 0 && (
+                            <div className="page">
+                                <LetterHeader portalName={portalName} logoSrc={logoSrc} />
+                                <div className="flex-grow pt-4">
+                                    <BreakdownTable breakdown={breakdown} candidateName={formData.candidateName} doj={formData.startDate} />
+                                    <div className="mt-16">
+                                        <p><strong>ACCEPTANCE:</strong></p>
+                                        <p>I have read and understood the above terms and conditions of employment and hereby signify my acceptance of the same.</p>
+                                        <div className="mt-24 pt-8">
+                                            <p className="border-t border-black pt-2"><strong>Name and Signature of Employee</strong></p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p className="text-right mt-auto text-xs font-semibold text-gray-700">Page 3 of {totalPages}</p>
+                            </div>
+                        )}
+                    </div>
+                    {/* Fixed Footer for all pages, outside the scrollable content */}
+                    <LetterFooter />
                 </div>
             </div>
         </div>

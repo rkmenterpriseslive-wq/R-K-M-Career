@@ -1,4 +1,9 @@
 
+
+
+
+
+
 import React from 'react';
 import {
   Job,
@@ -11,13 +16,17 @@ import {
   TeamMemberPerformance,
   AdminMenuItem,
   DashboardProps,
-  CandidateMenuItem
+  CandidateMenuItem,
+  Ticket,
+  Resignation,
+  PartnerRequirement,
+  StoreSupervisor,
+  HireYourselfStats
 } from '../types';
 import JobPostingForm from './JobPostingForm';
-import JobList from './JobList';
 import LogoUploader from './LogoUploader';
 import AdminLayout from './admin/AdminLayout';
-import AdminDashboardContent from './admin/AdminDashboardContent';
+import AdminDashboardContent from './admin/AdminDashboardContent'; // FIX: Changed import from named export to default export
 import CandidateLayout from './candidate/CandidateLayout';
 import CandidateDashboardContent from './candidate/CandidateDashboardContent';
 
@@ -26,7 +35,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   userType,
   jobs,
   onAddJob,
+  onUpdateJob,
   onDeleteJob,
+  onDeleteRequirement,
   currentLogoSrc,
   onLogoUpload,
   pipelineStats,
@@ -34,6 +45,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   complaintStats,
   partnerRequirementStats,
   hrStats,
+  hireYourselfStats,
   candidatesByProcess,
   candidatesByRole,
   teamPerformance,
@@ -52,9 +64,22 @@ const Dashboard: React.FC<DashboardProps> = ({
   jobRoles,
   locations,
   stores,
+  partnerLogos,
   onUpdateSettings,
+  showPopup,
   systemRoles,
   panelConfig,
+  demoRequests,
+  complaints,
+  candidates,
+  partnerRequirements,
+  resignation,
+  supervisors,
+  // NEW: Added new settings fields
+  quickLinks,
+  contactInfo,
+  socialMedia,
+  salaryRules,
 }) => {
   const renderDashboardContent = () => {
     switch (userType) {
@@ -79,13 +104,16 @@ const Dashboard: React.FC<DashboardProps> = ({
               complaintStats={complaintStats}
               partnerRequirementStats={partnerRequirementStats}
               hrStats={hrStats}
+              hireYourselfStats={hireYourselfStats}
               candidatesByProcess={candidatesByProcess}
               candidatesByRole={candidatesByRole}
               teamPerformance={teamPerformance}
               requirementBreakdown={requirementBreakdown}
               jobs={jobs}
               onAddJob={onAddJob}
+              onUpdateJob={onUpdateJob}
               onDeleteJob={onDeleteJob}
+              onDeleteRequirement={onDeleteRequirement}
               currentLogoSrc={currentLogoSrc} 
               onLogoUpload={onLogoUpload} 
               activeAdminMenuItem={activeAdminMenuItem} // Pass active menu item for conditional rendering
@@ -96,11 +124,23 @@ const Dashboard: React.FC<DashboardProps> = ({
               currentUser={currentUser}
               vendors={vendors}
               jobRoles={jobRoles}
+              systemRoles={systemRoles}
               locations={locations}
               stores={stores}
-              onUpdateSettings={onUpdateSettings}
-              systemRoles={systemRoles}
+              partnerLogos={partnerLogos}
               panelConfig={panelConfig}
+              onUpdateSettings={onUpdateSettings}
+              showPopup={showPopup}
+              demoRequests={demoRequests}
+              complaints={complaints}
+              candidates={candidates}
+              partnerRequirements={partnerRequirements}
+              // FIX: Removed 'resignation' prop as it is not part of AdminDashboardContentProps and is only relevant to the candidate dashboard.
+              supervisors={supervisors}
+              quickLinks={quickLinks}
+              contactInfo={contactInfo}
+              socialMedia={socialMedia}
+              salaryRules={salaryRules}
             />
           </AdminLayout>
         );
@@ -111,32 +151,31 @@ const Dashboard: React.FC<DashboardProps> = ({
             onLogout={onLogout}
             activeCandidateMenuItem={activeCandidateMenuItem}
             onCandidateMenuItemClick={onCandidateMenuItemClick}
-            currentUser={currentUser}
+            currentUser={currentUser || null}
           >
             <CandidateDashboardContent
               activeCandidateMenuItem={activeCandidateMenuItem}
               jobs={jobs}
               onApplyNow={onApplyNow}
               onProfileComplete={onProfileComplete}
-              currentUser={currentUser}
+              currentUser={currentUser || null}
+              complaints={complaints}
+              resignation={resignation}
+              candidates={candidates}
+              supervisors={supervisors}
+              portalName={branding.portalName}
+              logoSrc={currentLogoSrc}
+              contactInfo={contactInfo}
             />
           </CandidateLayout>
         );
       default:
-        return (
-          <div className="p-6 md:p-8 text-center text-gray-600">
-            <h2 className="text-3xl font-bold text-gray-800 mb-4">Welcome!</h2>
-            <p>Please log in to access your dashboard.</p>
-          </div>
-        );
+        // This should not be reached for logged-in users.
+        return <div>Loading dashboard...</div>;
     }
   };
 
-  return (
-    <main className="flex-grow"> {/* Removed container mx-auto mt-8 as AdminLayout will handle structure */}
-      {renderDashboardContent()}
-    </main>
-  );
+  return <>{renderDashboardContent()}</>;
 };
 
 export default Dashboard;

@@ -2,12 +2,18 @@ import React, { useState, useEffect } from 'react';
 import Input from '../Input';
 import Button from '../Button';
 import Modal from '../Modal';
-import { SalaryRule, getRules, saveRule, deleteRule, calculateBreakdownFromRule, calculateCTCFromNetSalary, CTCBreakdown, initialBreakdown } from '../../utils/salaryService';
+// FIX: Removed unused `initialBreakdown` import from `../../types` to resolve module not found error.
+import { SalaryRule, CTCBreakdown } from '../../types';
+import { calculateBreakdownFromRule, calculateCTCFromNetSalary } from '../../utils/salaryService';
 
-const formatCurrency = (amount: number) => `₹ ${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const formatCurrency = (amount: number) => `₹ ${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
-const CTCGeneratorView: React.FC = () => {
-    const [rules, setRules] = useState<SalaryRule[]>([]);
+interface CTCGeneratorViewProps {
+    salaryRules: SalaryRule[];
+    onUpdateSettings: (update: { salaryRules: SalaryRule[] }) => void;
+}
+
+const CTCGeneratorView: React.FC<CTCGeneratorViewProps> = ({ salaryRules, onUpdateSettings }) => {
     const [isEditing, setIsEditing] = useState<SalaryRule | null>(null);
 
     // Form state for rules
@@ -24,10 +30,15 @@ const CTCGeneratorView: React.FC = () => {
     const [showBreakdownModal, setShowBreakdownModal] = useState(false);
     const [breakdownResult, setBreakdownResult] = useState<CTCBreakdown | null>(null);
 
+    // State for foldable Add New Rule section
+    const [isAddRuleFormOpen, setIsAddRuleFormOpen] = useState(false);
 
     useEffect(() => {
-        setRules(getRules());
-    }, []);
+        // Open the form when editing starts
+        if (isEditing) {
+            setIsAddRuleFormOpen(true);
+        }
+    }, [isEditing]);
 
     const handleEditClick = (rule: SalaryRule) => {
         setIsEditing(rule);
@@ -47,12 +58,13 @@ const CTCGeneratorView: React.FC = () => {
         setConveyance('0');
         setMedical('0');
         setStatutoryBonus('0');
+        setIsAddRuleFormOpen(false); // Close form after cancelling edit
     };
 
-    const handleDelete = (designation: string) => {
-        if (window.confirm(`Are you sure you want to delete the rule for "${designation}"?`)) {
-            deleteRule(designation);
-            setRules(getRules());
+    const handleDelete = (designationToDelete: string) => {
+        if (window.confirm(`Are you sure you want to delete the rule for "${designationToDelete}"?`)) {
+            const updatedRules = (salaryRules || []).filter(r => r.designation !== designationToDelete);
+            onUpdateSettings({ salaryRules: updatedRules });
         }
     };
 
@@ -66,9 +78,19 @@ const CTCGeneratorView: React.FC = () => {
             medical: parseFloat(medical) || 0,
             statutoryBonus: parseFloat(statutoryBonus) || 0,
         };
-        saveRule(newRule);
-        setRules(getRules());
-        handleCancelEdit(); // Reset form
+        
+        const currentRules = salaryRules || [];
+        const existingIndex = currentRules.findIndex(r => r.designation === newRule.designation);
+
+        let updatedRules;
+        if (existingIndex > -1) {
+            updatedRules = currentRules.map((rule, index) => index === existingIndex ? newRule : rule);
+        } else {
+            updatedRules = [...currentRules, newRule];
+        }
+        
+        onUpdateSettings({ salaryRules: updatedRules });
+        handleCancelEdit(); // Reset form and close it
     };
 
     const handleQuickCalculate = () => {
@@ -96,6 +118,8 @@ const CTCGeneratorView: React.FC = () => {
         return 'Enter Desired In-Hand Salary';
     };
 
+    const rules = salaryRules || [];
+
     return (
         <div className="space-y-6">
             <h2 className="text-3xl font-bold text-gray-800">Salary Structure Settings</h2>
@@ -105,50 +129,60 @@ const CTCGeneratorView: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-1 space-y-6">
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-fit sticky top-6">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4">{isEditing ? 'Edit Rule' : 'Add New Rule'}</h3>
-                        <form onSubmit={handleSubmitRule} className="space-y-4">
-                            <Input
-                                id="designation"
-                                label="Designation"
-                                value={designation}
-                                onChange={e => setDesignation(e.target.value)}
-                                placeholder="e.g., Store Manager"
-                                disabled={!!isEditing}
-                                required
-                            />
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Basic Salary</label>
-                                <div className="flex items-center gap-2">
-                                    <Input id="basicPercentage" type="number" value={basicPercentage} onChange={e => setBasicPercentage(e.target.value)} wrapperClassName="flex-grow mb-0" required />
-                                    <span className="text-gray-600 font-medium">% of Gross Salary</span>
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-fit sticky top-6">
+                        <button 
+                            onClick={() => setIsAddRuleFormOpen(!isAddRuleFormOpen)} 
+                            className="w-full flex justify-between items-center p-6 text-lg font-bold text-gray-800 hover:bg-gray-50 transition-colors rounded-t-xl"
+                        >
+                            <span>{isEditing ? 'Edit Rule: ' + isEditing.designation : 'Add New Rule'}</span>
+                            <svg className={`h-6 w-6 transform transition-transform duration-200 ${isAddRuleFormOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isAddRuleFormOpen ? 'max-h-screen opacity-100 p-6' : 'max-h-0 opacity-0 p-0'}`}>
+                            <form onSubmit={handleSubmitRule} className="space-y-4">
+                                <Input
+                                    id="designation"
+                                    label="Designation"
+                                    value={designation}
+                                    onChange={e => setDesignation(e.target.value)}
+                                    placeholder="e.g., Store Manager"
+                                    disabled={!!isEditing}
+                                    required
+                                />
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Basic Salary</label>
+                                    <div className="flex items-center gap-2">
+                                        <Input id="basicPercentage" type="number" value={basicPercentage} onChange={e => setBasicPercentage(e.target.value)} wrapperClassName="flex-grow mb-0" required />
+                                        <span className="text-gray-600 font-medium">% of Gross Salary</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">House Rent Allowance (HRA)</label>
-                                <div className="flex items-center gap-2">
-                                    <Input id="hraPercentage" type="number" value={hraPercentage} onChange={e => setHraPercentage(e.target.value)} wrapperClassName="flex-grow mb-0" required />
-                                    <span className="text-gray-600 font-medium">% of Basic Salary</span>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">House Rent Allowance (HRA)</label>
+                                    <div className="flex items-center gap-2">
+                                        <Input id="hraPercentage" type="number" value={hraPercentage} onChange={e => setHraPercentage(e.target.value)} wrapperClassName="flex-grow mb-0" required />
+                                        <span className="text-gray-600 font-medium">% of Basic Salary</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <Input id="conveyance" label="Conveyance Allowance (Monthly, ₹)" type="number" value={conveyance} onChange={e => setConveyance(e.target.value)} />
-                            <Input id="medical" label="Medical Allowance (Monthly, ₹)" type="number" value={medical} onChange={e => setMedical(e.target.value)} />
-                            <Input id="statutoryBonus" label="Statutory Bonus (Monthly, ₹)" type="number" value={statutoryBonus} onChange={e => setStatutoryBonus(e.target.value)} />
+                                <Input id="conveyance" label="Conveyance Allowance (Monthly, ₹)" type="number" value={conveyance} onChange={e => setConveyance(e.target.value)} />
+                                <Input id="medical" label="Medical Allowance (Monthly, ₹)" type="number" value={medical} onChange={e => setMedical(e.target.value)} />
+                                <Input id="statutoryBonus" label="Statutory Bonus (Monthly, ₹)" type="number" value={statutoryBonus} onChange={e => setStatutoryBonus(e.target.value)} />
 
-                             <p className="text-xs text-gray-500 pt-2">
-                                <strong>Note:</strong> Special Allowance will be the balancing component. PF (12%) and ESI (0.75% Emp. / 3.25% Emyr.) are calculated automatically.
-                            </p>
-                            <div className="flex gap-2 pt-2">
-                                {isEditing && (
-                                    <Button type="button" variant="secondary" onClick={handleCancelEdit} className="w-full justify-center">
-                                        Cancel
+                                 <p className="text-xs text-gray-500 pt-2">
+                                    <strong>Note:</strong> Special Allowance will be the balancing component. PF (12%) and ESI (0.75% Emp. / 3.25% Emyr.) are calculated automatically.
+                                </p>
+                                <div className="flex gap-2 pt-2">
+                                    {isEditing && (
+                                        <Button type="button" variant="secondary" onClick={handleCancelEdit} className="w-full justify-center">
+                                            Cancel
+                                        </Button>
+                                    )}
+                                    <Button type="submit" variant="primary" className="w-full justify-center">
+                                        {isEditing ? 'Update Rule' : 'Save Rule'}
                                     </Button>
-                                )}
-                                <Button type="submit" variant="primary" className="w-full justify-center">
-                                    {isEditing ? 'Update Rule' : 'Save Rule'}
-                                </Button>
-                            </div>
-                        </form>
+                                </div>
+                            </form>
+                        </div>
                     </div>
 
                     {/* Quick CTC Calculator */}
